@@ -44,8 +44,13 @@
 
 #define _XTAL_FREQ 1000000
 
+void goForward(void);
+void goBack(void);
+void goRight(void);
+void goLeft(void);
+
 void main(void) {
-        // 動作周波数設定
+    // 動作周波数設定
     OSCCON1bits.NOSC = 0b110;   // 内部クロック使用
     OSCCON1bits.NDIV = 0b0000;  // 分周1:1
     OSCFRQbits.HFFRQ = 0b000;   // 1MHz
@@ -59,42 +64,84 @@ void main(void) {
     TRISC  = 0b00000000;
     
     //PWMの設定
-    // PPS設定ロックの解除
-    //PPSLOCK = 0x55;
-    //PPSLOCK = 0xAA;
-    PPSLOCKbits.PPSLOCKED = 0;
-
-    RC2PPS = 0x09;
-
-    // PPS設定ロック
-    //PPSLOCK = 0x55;
-    //PPSLOCK = 0xAA;
-    PPSLOCKbits.PPSLOCKED = 1;
+    PPSLOCKbits.PPSLOCKED = 0;      // PPS設定ロックの解除
+    RC1PPS = 0x09;                  //PWMの割り当て
+    RC2PPS = 0x0A;
+    PPSLOCKbits.PPSLOCKED = 1;      // PPS設定ロック
     
-    T2CLKCONbits.CS = 0b0010;
+    T2CLKCONbits.CS = 0b0010;       //タイマ2に内部クロックを使用
     
+    //CCP1の設定
+    CCP1CONbits.EN   = 1;             //PWMを許可
+    CCP1CONbits.FMT  = 1;         //right-aligned formatに設定
+    CCP1CONbits.MODE = 0b1111;    //PWMモードに設定
+    //CCP2の設定
+    CCP2CONbits.EN   = 1;
+    CCP2CONbits.FMT  = 1;
+    CCP2CONbits.MODE = 0b1111;
     
-    CCP1CONbits.EN = 1;         //PWMを許可
-    CCP1CONbits.FMT    = 0;         //right-aligned formatに設定
-    CCP1CONbits.MODE   = 0b1111;    //PWMモードに設定
-    
+    //CCP1と2にタイマ2を使用
     CCPTMRS0bits.C1TSEL = 0b01;
+    CCPTMRS0bits.C2TSEL = 0b01;
     
     T2CONbits.CKPS     = 0b110;     //プリスケーラを64に設定
     PR2                = 77;        //50Hzに設定
-    CCPR1H             = (500 & 0b00000011) << 6;    //デューティーサイクルを0.5msに設定
-    CCPR1L             = 500 / 4;
     
+    //CCP1のデューティーサイクルを設定
+    CCPR1H = (uint8_t)(100 >> 2);
+    CCPR1L = (uint8_t)(100 << 6);
     
-    //T2CONbits.ON = 1;
+    //CCP2のデューティーサイクルを設定
+    CCPR2H = (uint8_t)(33 >> 2);
+    CCPR2L = (uint8_t)(33 << 6);
+    
+    TMR2ON = 1;
     while(1) {
-        TMR2ON = 1;
-        LATA0 = 0;
-        __delay_ms(500);
-        LATA0 = 1;
-        TMR2ON = 0;
-        __delay_ms(500);
+        goForward();
+        __delay_ms(2000);
+        goBack();
+        __delay_ms(2000);
     }
     
+    return;
+}
+
+void goForward() {
+    CCPR1H = (uint8_t)(60 >> 2);
+    CCPR1L = (uint8_t)(60 << 6);
+    
+    CCPR2H = (uint8_t)(60 >> 2);
+    CCPR2L = (uint8_t)(60 << 6);
+
+    return;
+}
+
+void goBack() {
+    CCPR1H = (uint8_t)(130 >> 2);
+    CCPR1L = (uint8_t)(130 << 6);
+    
+    CCPR2H = (uint8_t)(130 >> 2);
+    CCPR2L = (uint8_t)(130 << 6);
+
+    return;
+}
+
+void goRight() {
+    CCPR1H = (uint8_t)(60 >> 2);
+    CCPR1L = (uint8_t)(60 << 6);
+    
+    CCPR2H = (uint8_t)(60 >> 2);
+    CCPR2L = (uint8_t)(60 << 6);
+
+    return;
+}
+
+void goLeft() {
+    CCPR1H = (uint8_t)(60 >> 2);
+    CCPR1L = (uint8_t)(60 << 6);
+    
+    CCPR2H = (uint8_t)(60 >> 2);
+    CCPR2L = (uint8_t)(60 << 6);
+
     return;
 }
