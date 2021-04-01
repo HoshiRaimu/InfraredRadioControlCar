@@ -41,6 +41,10 @@
 // Use project enums instead of #define for ON and OFF.
 
 #include <xc.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdbool.h>
+#include "AQM0802.h"
 
 #define _XTAL_FREQ 1000000
 
@@ -48,6 +52,39 @@ void goForward(void);
 void goBack(void);
 void goRight(void);
 void goLeft(void);
+
+void dispInt(uint8_t pos_x, uint8_t pos_y, uint8_t data) {
+    uint8_t data1, data2;
+    
+    //16進数表記にするために上位4ビットと下位4ビットを取り出す
+    data1 = (data & 0b11110000) >> 4;
+    data2 = data & 0b00001111;
+    
+    //0から9のときとAからFのときの場合分け
+    //上位4ビットの表示
+    lcdLocateCursor(pos_x, pos_y);
+    if(data1 >= 0 && data1 <= 9) {
+        data1 |= 0b00110000;
+        lcdSendCharacterData(data1);
+    }else {
+        data1 -= 9;
+        data1 |= 0b01000000;
+        lcdSendCharacterData(data1);
+    }
+    
+    //下位4ビットの表示
+    lcdLocateCursor(pos_x + 1, pos_y);
+    if(data2 >= 0 && data2 <= 9) {
+        data2 |= 0b00110000;
+        lcdSendCharacterData(data2);
+    }else {
+        data2 -= 9;
+        data2 |= 0b01000000;
+        lcdSendCharacterData(data2);
+    }
+    
+    return;
+}
 
 void main(void) {
     // 動作周波数設定
@@ -59,22 +96,42 @@ void main(void) {
     ANSELA = 0b00000000;
     ANSELB = 0b00000000;
     ANSELC = 0b00000000;
-    TRISA  = 0b00000000;
-    TRISB  = 0b00000000;
+    TRISA  = 0b00000011;        //RA0とRA1を入力に設定
+    TRISB  = 0b00000011;        //RB0とRB1を入力に設定
     TRISC  = 0b00000000;
     
-    //PWMの設定
-    PPSLOCKbits.PPSLOCKED = 0;      // PPS設定ロックの解除
-    RC1PPS = 0x09;                  //PWMの割り当て
-    RC2PPS = 0x0A;
-    PPSLOCKbits.PPSLOCKED = 1;      // PPS設定ロック
+    //I2Cの設定
+    SSP1STAT = 0x80;   // クロック信号は100kHzを使用
+    SSP1CON1 = 0x28;   // I2C通信のマスターモードを有効化
+    SSP1CON3 = 0x00;   // CON3はデフォルト設定
+    SSP1ADD  = 0x09;   //クロック信号速度を100kHzに設定
     
+    //Timer1の設定
+    T1CLKbits.CS   = 0b0010;        //システムクロックを使用
+    T1CONbits.CKPS = 0b00;          //プリスケール値は1:1
+    T1CONbits.RD16 = 1;             //16ビットの値を読めるように許可
+    T1CONbits.ON   = 0;             //タイマー1を停止
+    
+    //PPSの設定
+    PPSLOCKbits.PPSLOCKED = 0;      //PPS設定ロックの解除
+    //PWMの割り当て
+    RC0PPS = 0x09;                  //RC0にCCP1を割り当て     
+    RC1PPS = 0x0A;                  //RC1にCCP2を割り当て
+    
+    //I2Cの設定
+    SSP1DATPPS = 0x08;              //SDA入力部をRB0に割り当て
+    SSP1CLKPPS = 0x09;              //SCL入力部をRB1に割り当て
+    RB0PPS     = 0x15;              //RB0をSDAに割り当て
+    RB1PPS     = 0x14;              //RB1をSCLに割り当て
+    PPSLOCKbits.PPSLOCKED = 1;      //PPS設定ロック
+    
+    //PWMの設定
     T2CLKCONbits.CS = 0b0010;       //タイマ2に内部クロックを使用
     
     //CCP1の設定
-    CCP1CONbits.EN   = 1;             //PWMを許可
-    CCP1CONbits.FMT  = 1;         //right-aligned formatに設定
-    CCP1CONbits.MODE = 0b1111;    //PWMモードに設定
+    CCP1CONbits.EN   = 1;           //PWMを許可
+    CCP1CONbits.FMT  = 1;           //right-aligned formatに設定
+    CCP1CONbits.MODE = 0b1111;      //PWMモードに設定
     //CCP2の設定
     CCP2CONbits.EN   = 1;
     CCP2CONbits.FMT  = 1;
@@ -95,12 +152,88 @@ void main(void) {
     CCPR2H = (uint8_t)(33 >> 2);
     CCPR2L = (uint8_t)(33 << 6);
     
-    TMR2ON = 1;
+    uint8_t rcv_data[4] = {1, 0, 0, 0};
+    
+    //TMR2ON = 1;
+    
+    LATA4 = 0;
+    bool led = false;
+    
+    
+    
+        // LCDモジュール電源安定化時間待ち
+    __delay_ms(100);
+     
+    // LCD初期化
+    lcdInitialize();
+ 
+    // LCD表示位置を左上に設定
+  
+    
+    
+    
     while(1) {
-        goForward();
-        __delay_ms(2000);
-        goBack();
-        __delay_ms(2000);
+        
+        if(RA1) {
+            __delay_ms(50);     //安定化待ち
+            LATA2 = 1;          //LED点灯
+            __delay_ms(1000);
+            
+            //リーダーコードの待ち
+            while(RA0);
+            
+            //リーダーコードの長さを測定
+            //Timer1を開始
+            TMR1H  = 0;
+            TMR1L  = 0;
+            TMR1ON = 1;
+            while(!RA0);
+            TMR1ON = 0;
+            
+            
+            //LOWになるのを待つ
+            while(RA0);
+
+            for(int i = 0; i < 4; i++) {
+                rcv_data[i] = 0;
+                for(int j = 7; j >= 0; j--) {
+                    //HIGHの時間つぶし
+                    while(!RA0);
+
+                    //LOWの時間を測定
+                    TMR1H  = 0;
+                    TMR1L  = 0;
+                    TMR1ON = 1;
+                    while(RA0);
+                    TMR1ON = 0;
+
+                    //LOWの時間が0x04よりも長ければ1と判断
+                    if(TMR1H >= 0x04) {
+                        rcv_data[i] = rcv_data[i] | (uint8_t)(0b00000001 << j);
+                    }
+                }
+            }
+            TMR1ON = 0;
+            LATA2 = 0; 
+            
+            /*
+            if((rcv_data[0] == 0xE7) && (rcv_data[1] == 0x30) && (rcv_data[2] == 0xD1) && (rcv_data[3] == 0x2E)) {
+                if(~led) {
+                    LATA4 = 1;
+                    led = true;
+                }else {
+                    LATA4 = 0; 
+                    led = false;
+                } 
+            }
+            */
+        }
+        
+        dispInt(1, 1, rcv_data[0]);
+        dispInt(5, 1, rcv_data[1]);
+        dispInt(1, 2, rcv_data[2]);
+        dispInt(5, 2, rcv_data[3]);
+        
     }
     
     return;
