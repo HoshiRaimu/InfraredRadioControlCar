@@ -109,7 +109,7 @@ void main(void) {
     //Timer1の設定
     T1CLKbits.CS   = 0b0010;        //システムクロックを使用
     T1CONbits.CKPS = 0b00;          //プリスケール値は1:1
-    T1CONbits.RD16 = 1;             //16ビットの値を読めるように許可
+    //T1CONbits.RD16 = 0;             //16ビットの値を読めるように許可
     T1CONbits.ON   = 0;             //タイマー1を停止
     
     //PPSの設定
@@ -152,7 +152,7 @@ void main(void) {
     CCPR2H = (uint8_t)(33 >> 2);
     CCPR2L = (uint8_t)(33 << 6);
     
-    uint8_t rcv_data[4] = {1, 0, 0, 0};
+    uint8_t rcv_data[4] = {255, 0, 0, 0};
     
     //TMR2ON = 1;
     
@@ -233,7 +233,9 @@ void main(void) {
         dispInt(5, 1, rcv_data[1]);
         dispInt(1, 2, rcv_data[2]);
         dispInt(5, 2, rcv_data[3]);
-        
+        //lcdLocateCursor(1, 1);
+        //printf("Hello");
+        //lcdSendCharacterData(rcv_data[0]);
     }
     
     return;
