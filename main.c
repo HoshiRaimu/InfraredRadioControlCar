@@ -48,6 +48,8 @@
 
 #define _XTAL_FREQ 1000000
 
+void init(void);
+
 void goForward(void);
 void goBack(void);
 void goRight(void);
@@ -87,6 +89,84 @@ void dispInt(uint8_t pos_x, uint8_t pos_y, uint8_t data) {
 }
 
 void main(void) {
+    init();
+    
+    uint8_t rcv_data[4];
+     
+    // LCDモジュール電源安定化時間待ち
+    __delay_ms(100);
+     
+    // LCD初期化
+    lcdInitialize();
+    
+    //リーダーコードの長さに応じて赤外線を受信するかしないか判断
+    bool receive;
+    
+    while(1) {
+        //初期化
+        receive = false;
+        for(uint8_t i = 0; i < 4; i++) rcv_data[i] = 0;
+        
+        //何も受信していない間の時間つぶし
+        while(RA0);
+        
+        //受信し始めたらカウンタの値を初期化し、タイマをスタート
+        if(!RA0) {
+            TMR1H  = 0;
+            TMR1L  = 0;
+            TMR1ON = 1;
+        }
+        //HIGHの時間を計測
+        while(!RA0);
+        TMR1ON = 0;
+        
+        //HIGHの時間が8ms-10.0msだとデータを受信するようにする
+        if(TMR1H >= 0x1F && TMR1H <= 0x27) receive = true;
+        
+        //LOWの時間つぶし
+        while(RA0);
+        
+        //データの受信
+        if(receive) {
+            for(int i = 0; i < 4; i++) {
+                rcv_data[i] = 0;
+                for(int j = 7; j >= 0; j--) {
+                    //HIGHの時間つぶし
+                    while(!RA0);
+
+                    //LOWの時間を測定
+                    TMR1H  = 0;
+                    TMR1L  = 0;
+                    TMR1ON = 1;
+                    while(RA0);
+                    TMR1ON = 0;
+
+                    //LOWの時間が0x04よりも長ければ1と判断
+                    if(TMR1H >= 0x04) {
+                        rcv_data[i] = rcv_data[i] | (uint8_t)(0b00000001 << j);
+                    }
+                }
+            }
+        }
+        
+        
+        if(rcv_data[0] == 'S' && rcv_data[1] == 'C') {
+            if(rcv_data[3] == 0x00) goForward();
+            else if(rcv_data[3] == 0x01) goBack();
+            else if(rcv_data[3] == 0x02) goRight();
+            else if(rcv_data[3] == 0x03) goLeft();
+        }
+        
+        //dispInt(1, 1, rcv_data[0]);
+        //dispInt(5, 1, rcv_data[1]);
+        //dispInt(1, 2, rcv_data[2]);
+        //dispInt(5, 2, rcv_data[3]);
+    }
+    
+    return;
+}
+
+void init() {
     // 動作周波数設定
     OSCCON1bits.NOSC = 0b110;   // 内部クロック使用
     OSCCON1bits.NDIV = 0b0000;  // 分周1:1
@@ -151,132 +231,64 @@ void main(void) {
     //CCP2のデューティーサイクルを設定
     CCPR2H = (uint8_t)(33 >> 2);
     CCPR2L = (uint8_t)(33 << 6);
-    
-    uint8_t rcv_data[4] = {255, 0, 0, 0};
-    
-    //TMR2ON = 1;
-    
-    LATA4 = 0;
-    bool led = false;
-    
-    
-    
-        // LCDモジュール電源安定化時間待ち
-    __delay_ms(100);
-     
-    // LCD初期化
-    lcdInitialize();
- 
-    // LCD表示位置を左上に設定
-  
-    
-    
-    
-    while(1) {
-        
-        if(RA1) {
-            __delay_ms(50);     //安定化待ち
-            LATA2 = 1;          //LED点灯
-            __delay_ms(1000);
-            
-            //リーダーコードの待ち
-            while(RA0);
-            
-            //リーダーコードの長さを測定
-            //Timer1を開始
-            TMR1H  = 0;
-            TMR1L  = 0;
-            TMR1ON = 1;
-            while(!RA0);
-            TMR1ON = 0;
-            
-            
-            //LOWになるのを待つ
-            while(RA0);
-
-            for(int i = 0; i < 4; i++) {
-                rcv_data[i] = 0;
-                for(int j = 7; j >= 0; j--) {
-                    //HIGHの時間つぶし
-                    while(!RA0);
-
-                    //LOWの時間を測定
-                    TMR1H  = 0;
-                    TMR1L  = 0;
-                    TMR1ON = 1;
-                    while(RA0);
-                    TMR1ON = 0;
-
-                    //LOWの時間が0x04よりも長ければ1と判断
-                    if(TMR1H >= 0x04) {
-                        rcv_data[i] = rcv_data[i] | (uint8_t)(0b00000001 << j);
-                    }
-                }
-            }
-            TMR1ON = 0;
-            LATA2 = 0; 
-            
-            /*
-            if((rcv_data[0] == 0xE7) && (rcv_data[1] == 0x30) && (rcv_data[2] == 0xD1) && (rcv_data[3] == 0x2E)) {
-                if(~led) {
-                    LATA4 = 1;
-                    led = true;
-                }else {
-                    LATA4 = 0; 
-                    led = false;
-                } 
-            }
-            */
-        }
-        
-        dispInt(1, 1, rcv_data[0]);
-        dispInt(5, 1, rcv_data[1]);
-        dispInt(1, 2, rcv_data[2]);
-        dispInt(5, 2, rcv_data[3]);
-        //lcdLocateCursor(1, 1);
-        //printf("Hello");
-        //lcdSendCharacterData(rcv_data[0]);
-    }
-    
-    return;
 }
 
 void goForward() {
+    TMR2ON = 1;
+    
     CCPR1H = (uint8_t)(60 >> 2);
     CCPR1L = (uint8_t)(60 << 6);
     
-    CCPR2H = (uint8_t)(60 >> 2);
-    CCPR2L = (uint8_t)(60 << 6);
-
+    CCPR2H = (uint8_t)(130 >> 2);
+    CCPR2L = (uint8_t)(130 << 6);
+    
+    __delay_ms(500);
+    TMR2ON = 0;
+    
     return;
 }
 
 void goBack() {
+    TMR2ON = 1;
+    
     CCPR1H = (uint8_t)(130 >> 2);
     CCPR1L = (uint8_t)(130 << 6);
     
-    CCPR2H = (uint8_t)(130 >> 2);
-    CCPR2L = (uint8_t)(130 << 6);
+    CCPR2H = (uint8_t)(60 >> 2);
+    CCPR2L = (uint8_t)(60 << 6);
+    
+    __delay_ms(500);
+    TMR2ON = 0;
 
     return;
 }
 
 void goRight() {
+    TMR2ON = 1;
+    
     CCPR1H = (uint8_t)(60 >> 2);
     CCPR1L = (uint8_t)(60 << 6);
     
     CCPR2H = (uint8_t)(60 >> 2);
     CCPR2L = (uint8_t)(60 << 6);
+    
+    __delay_ms(500);
+    TMR2ON = 0;
 
     return;
 }
 
 void goLeft() {
-    CCPR1H = (uint8_t)(60 >> 2);
-    CCPR1L = (uint8_t)(60 << 6);
+    TMR2ON = 1;
     
-    CCPR2H = (uint8_t)(60 >> 2);
-    CCPR2L = (uint8_t)(60 << 6);
+    CCPR1H = (uint8_t)(130 >> 2);
+    CCPR1L = (uint8_t)(130 << 6);
+    
+    CCPR2H = (uint8_t)(130 >> 2);
+    CCPR2L = (uint8_t)(130 << 6);
+    
+    __delay_ms(500);
+    TMR2ON = 0;
 
     return;
 }
