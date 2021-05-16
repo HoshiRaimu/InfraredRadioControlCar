@@ -55,39 +55,6 @@ void goBack(void);
 void goRight(void);
 void goLeft(void);
 
-void dispInt(uint8_t pos_x, uint8_t pos_y, uint8_t data) {
-    uint8_t data1, data2;
-    
-    //16進数表記にするために上位4ビットと下位4ビットを取り出す
-    data1 = (data & 0b11110000) >> 4;
-    data2 = data & 0b00001111;
-    
-    //0から9のときとAからFのときの場合分け
-    //上位4ビットの表示
-    lcdLocateCursor(pos_x, pos_y);
-    if(data1 >= 0 && data1 <= 9) {
-        data1 |= 0b00110000;
-        lcdSendCharacterData(data1);
-    }else {
-        data1 -= 9;
-        data1 |= 0b01000000;
-        lcdSendCharacterData(data1);
-    }
-    
-    //下位4ビットの表示
-    lcdLocateCursor(pos_x + 1, pos_y);
-    if(data2 >= 0 && data2 <= 9) {
-        data2 |= 0b00110000;
-        lcdSendCharacterData(data2);
-    }else {
-        data2 -= 9;
-        data2 |= 0b01000000;
-        lcdSendCharacterData(data2);
-    }
-    
-    return;
-}
-
 void main(void) {
     init();
     
@@ -102,67 +69,103 @@ void main(void) {
     //リーダーコードの長さに応じて赤外線を受信するかしないか判断
     bool receive;
     
+    uint16_t data1 = 0;
+    
     while(1) {
-        //初期化
-        receive = false;
-        for(uint8_t i = 0; i < 4; i++) rcv_data[i] = 0;
-        
-        //何も受信していない間の時間つぶし
-        while(RA0);
-        
-        //受信し始めたらカウンタの値を初期化し、タイマをスタート
-        if(!RA0) {
-            TMR1H  = 0;
-            TMR1L  = 0;
-            TMR1ON = 1;
-        }
-        //HIGHの時間を計測
-        while(!RA0);
-        TMR1ON = 0;
-        
-        //HIGHの時間が8ms-10.0msだとデータを受信するようにする
-        if(TMR1H >= 0x1F && TMR1H <= 0x27) receive = true;
-        
-        //LOWの時間つぶし
-        while(RA0);
-        
-        //データの受信
-        if(receive) {
-            for(int i = 0; i < 4; i++) {
-                rcv_data[i] = 0;
-                for(int j = 7; j >= 0; j--) {
-                    //HIGHの時間つぶし
-                    while(!RA0);
+        if(RA1) {
+            __delay_ms(100);
+            LATA2 = 1;
+            
+            ADPCHbits.ADPCH = 0b001100;     //ANB4
 
-                    //LOWの時間を測定
-                    TMR1H  = 0;
-                    TMR1L  = 0;
-                    TMR1ON = 1;
-                    while(RA0);
-                    TMR1ON = 0;
+            while(RA1) {
+                ADGO = 1;
+                while(ADGO);
+                lcdLocateCursor(1, 1);
+                data1 = ADRES;
+                printf("%4d", data1);
+            }
+            LATA2 = 0;
+            /*
+            ADPCHbits.ADPCH = 0b001101;     //ANB5
+            while(ADGO);
+            uint16_t data2 = ADRES;
+            lcdLocateCursor(1, 1);
+            printf("%4d", data2);     
 
-                    //LOWの時間が0x04よりも長ければ1と判断
-                    if(TMR1H >= 0x04) {
-                        rcv_data[i] = rcv_data[i] | (uint8_t)(0b00000001 << j);
+            ADPCHbits.ADPCH = 0b001110;     //ANB6
+            while(ADGO);
+            uint16_t data3 = ADRES;
+            lcdLocateCursor(1, 1);
+            printf("%4d", data3);  
+            */
+        } else {
+            //初期化
+            receive = false;
+            for(uint8_t i = 0; i < 4; i++) rcv_data[i] = 0;
+
+            //何も受信していない間の時間つぶし
+            while(RA0) {
+                if(RA1) break;      //モード変更スイッチが押されてたらbreak
+            }
+
+            //受信し始めたらカウンタの値を初期化し、タイマをスタート
+            if(!RA0) {
+                TMR1H  = 0;
+                TMR1L  = 0;
+                TMR1ON = 1;
+            }
+            //HIGHの時間を計測
+            while(!RA0) {
+                if(RA1) break;      //モード変更スイッチが押されてたらbreak
+            }
+            TMR1ON = 0;
+
+            //HIGHの時間が8ms-10.0msだとデータを受信するようにする
+            if(TMR1H >= 0x1F && TMR1H <= 0x27) receive = true;
+
+            //LOWの時間つぶし
+            while(RA0) {
+                if(RA1) break;      //モード変更スイッチが押されてたらbreak
+            }
+
+            //データの受信
+            if(receive) {
+                for(int i = 0; i < 4; i++) {
+                    rcv_data[i] = 0;
+                    for(int j = 7; j >= 0; j--) {
+                        //HIGHの時間つぶし
+                        while(!RA0) {
+                            if(RA1) break;      //モード変更スイッチが押されてたらbreak
+                        }
+
+                        //LOWの時間を測定
+                        TMR1H  = 0;
+                        TMR1L  = 0;
+                        TMR1ON = 1;
+                        while(RA0) {
+                            if(RA1) break;      //モード変更スイッチが押されてたらbreak
+                        }
+                        TMR1ON = 0;
+
+                        //LOWの時間が0x04よりも長ければ1と判断
+                        if(TMR1H >= 0x04) {
+                            rcv_data[i] = rcv_data[i] | (uint8_t)(0b00000001 << j);
+                        }
                     }
                 }
             }
+            
+            if(rcv_data[0] == 'S' && rcv_data[1] == 'C') {
+                if(rcv_data[3] == 0x00)      goForward();
+                else if(rcv_data[3] == 0x01) goLeft();
+                else if(rcv_data[3] == 0x02) goBack();
+                else if(rcv_data[3] == 0x03) goRight();
+            }
         }
-        
-        
-        if(rcv_data[0] == 'S' && rcv_data[1] == 'C') {
-            if(rcv_data[3] == 0x00) goForward();
-            else if(rcv_data[3] == 0x01) goBack();
-            else if(rcv_data[3] == 0x02) goRight();
-            else if(rcv_data[3] == 0x03) goLeft();
-        }
-        
-        //dispInt(1, 1, rcv_data[0]);
-        //dispInt(5, 1, rcv_data[1]);
-        //dispInt(1, 2, rcv_data[2]);
-        //dispInt(5, 2, rcv_data[3]);
     }
     
+        
     return;
 }
 
@@ -174,10 +177,10 @@ void init() {
     
     // ピン属性設定
     ANSELA = 0b00000000;
-    ANSELB = 0b00000000;
+    ANSELB = 0b01110000;        //RB4、RB5、RB6をアナログに設定
     ANSELC = 0b00000000;
-    TRISA  = 0b00000011;        //RA0とRA1を入力に設定
-    TRISB  = 0b00000011;        //RB0とRB1を入力に設定
+    TRISA  = 0b00000011;        //RA0、RA1を入力に設定
+    TRISB  = 0b01110011;        //RB0、RB1、RB4、RB5、RB6を入力に設定
     TRISC  = 0b00000000;
     
     //I2Cの設定
@@ -231,6 +234,11 @@ void init() {
     //CCP2のデューティーサイクルを設定
     CCPR2H = (uint8_t)(33 >> 2);
     CCPR2L = (uint8_t)(33 << 6);
+    
+    ADCON0bits.ADON   = 1;
+    ADCON0bits.ADFRM0 = 1;
+    ADCLKbits.ADCCS   = 0b000000;
+    ADREFbits.ADPREF  = 0b00;
 }
 
 void goForward() {
@@ -242,7 +250,7 @@ void goForward() {
     CCPR2H = (uint8_t)(130 >> 2);
     CCPR2L = (uint8_t)(130 << 6);
     
-    __delay_ms(500);
+    __delay_ms(100);
     TMR2ON = 0;
     
     return;
@@ -257,7 +265,7 @@ void goBack() {
     CCPR2H = (uint8_t)(60 >> 2);
     CCPR2L = (uint8_t)(60 << 6);
     
-    __delay_ms(500);
+    __delay_ms(100);
     TMR2ON = 0;
 
     return;
@@ -266,13 +274,13 @@ void goBack() {
 void goRight() {
     TMR2ON = 1;
     
-    CCPR1H = (uint8_t)(60 >> 2);
-    CCPR1L = (uint8_t)(60 << 6);
+    CCPR1H = (uint8_t)(130 >> 2);
+    CCPR1L = (uint8_t)(130 << 6);
     
-    CCPR2H = (uint8_t)(60 >> 2);
-    CCPR2L = (uint8_t)(60 << 6);
+    CCPR2H = (uint8_t)(130 >> 2);
+    CCPR2L = (uint8_t)(130 << 6);
     
-    __delay_ms(500);
+    __delay_ms(100);
     TMR2ON = 0;
 
     return;
@@ -281,13 +289,13 @@ void goRight() {
 void goLeft() {
     TMR2ON = 1;
     
-    CCPR1H = (uint8_t)(130 >> 2);
-    CCPR1L = (uint8_t)(130 << 6);
+    CCPR1H = (uint8_t)(60 >> 2);
+    CCPR1L = (uint8_t)(60 << 6);
     
-    CCPR2H = (uint8_t)(130 >> 2);
-    CCPR2L = (uint8_t)(130 << 6);
+    CCPR2H = (uint8_t)(60 >> 2);
+    CCPR2L = (uint8_t)(60 << 6);
     
-    __delay_ms(500);
+    __delay_ms(100);
     TMR2ON = 0;
 
     return;
