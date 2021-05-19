@@ -49,7 +49,7 @@
 #define _XTAL_FREQ 1000000
 
 void init(void);
-
+void changePID(void);
 void goForward(void);
 void goBack(void);
 void goRight(void);
@@ -71,35 +71,26 @@ void main(void) {
     
     uint16_t data1 = 0;
     
+    
     while(1) {
         if(RA1) {
-            __delay_ms(100);
-            LATA2 = 1;
+            //ライントレースモード
             
-            ADPCHbits.ADPCH = 0b001100;     //ANB4
-
+            __delay_ms(100);        //チャタリング対策
+            LATA2 = 1;              //LEDを点灯
+            
             while(RA1) {
-                ADGO = 1;
-                while(ADGO);
-                lcdLocateCursor(1, 1);
-                data1 = ADRES;
-                printf("%4d", data1);
+                if(RA3 == 1) {
+                    __delay_ms(100);        //チャタリング対策
+                    while(RA3);
+                    changePID();
+                }
             }
-            LATA2 = 0;
-            /*
-            ADPCHbits.ADPCH = 0b001101;     //ANB5
-            while(ADGO);
-            uint16_t data2 = ADRES;
-            lcdLocateCursor(1, 1);
-            printf("%4d", data2);     
-
-            ADPCHbits.ADPCH = 0b001110;     //ANB6
-            while(ADGO);
-            uint16_t data3 = ADRES;
-            lcdLocateCursor(1, 1);
-            printf("%4d", data3);  
-            */
+            
+            LATA2 = 0;              //LEDを消灯
         } else {
+            //赤外線ラジコンモード
+            
             //初期化
             receive = false;
             for(uint8_t i = 0; i < 4; i++) rcv_data[i] = 0;
@@ -179,7 +170,7 @@ void init() {
     ANSELA = 0b00000000;
     ANSELB = 0b01110000;        //RB4、RB5、RB6をアナログに設定
     ANSELC = 0b00000000;
-    TRISA  = 0b00000011;        //RA0、RA1を入力に設定
+    TRISA  = 0b00010011;        //RA0、RA1、RA3を入力に設定
     TRISB  = 0b01110011;        //RB0、RB1、RB4、RB5、RB6を入力に設定
     TRISC  = 0b00000000;
     
@@ -241,6 +232,77 @@ void init() {
     ADREFbits.ADPREF  = 0b00;
 }
 
+void changePID() {
+    uint16_t val_p, val_i, val_d;
+    
+    ADPCHbits.ADPCH = 0b001100;     //B4のアナログ値を読み取り
+
+    //Pの値を設定する
+    lcdLocateCursor(1, 1);
+    printf("P");
+    
+    while(1) {
+        ADGO = 1;
+        while(ADGO);
+        lcdLocateCursor(1, 2);
+        val_p = ADRES;
+        printf("%4d", val_p);
+        
+        //RA3が押されて、離されたら抜ける
+        if(RA3) {
+            __delay_ms(100);        //チャタリング対策
+            while(RA3);
+            break;
+        }
+    }
+    
+    ADPCHbits.ADPCH = 0b001101;     //B5のアナログ値を読み取り
+    
+    //Iの値を設定する
+    lcdLocateCursor(1, 1);
+    printf("I");
+    
+    while(1) {
+        ADGO = 1;
+        while(ADGO);
+        lcdLocateCursor(1, 2);
+        val_i = ADRES;
+        printf("%4d", val_i);
+        
+        //RA3が押されて、離されたら抜ける
+        if(RA3) {
+            __delay_ms(100);        //チャタリング対策
+            while(RA3);
+            break;
+        }
+    }
+    
+    ADPCHbits.ADPCH = 0b001110;     //B6のアナログ値を読み取り
+    
+    //Dの値を設定する
+    lcdLocateCursor(1, 1);
+    printf("D");
+    
+    while(1) {
+        ADGO = 1;
+        while(ADGO);
+        lcdLocateCursor(1, 2);
+        val_d = ADRES;
+        printf("%4d", val_d);
+        
+        //RA3が押されて、離されたら抜ける
+        if(RA3) {
+            __delay_ms(100);        //チャタリング対策
+            while(RA3);
+            break;
+        }
+    }
+    
+    //LCDをまっさらにして終了
+    lcdClearDisplay();
+    return;
+}
+
 void goForward() {
     TMR2ON = 1;
     
@@ -264,7 +326,7 @@ void goBack() {
     
     CCPR2H = (uint8_t)(60 >> 2);
     CCPR2L = (uint8_t)(60 << 6);
-    
+                                                                                                                                                                                  
     __delay_ms(100);
     TMR2ON = 0;
 
