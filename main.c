@@ -49,7 +49,8 @@
 #define _XTAL_FREQ 1000000
 
 void init(void);
-void changePID(void);
+void changePID(uint8_t, uint8_t, uint8_t, char);
+
 void goForward(void);
 void goBack(void);
 void goRight(void);
@@ -83,7 +84,12 @@ void main(void) {
                 if(RA3 == 1) {
                     __delay_ms(100);        //チャタリング対策
                     while(RA3);
-                    changePID();
+                    changePID(0, 1, 0b00001100, 'P');       //B4のアナログ値を読み取り
+                    changePID(2, 3, 0b00001101, 'I');       //B5のアナログ値を読み取り
+                    changePID(4, 5, 0b00010011, 'D');       //C3のアナログ値を読み取り
+                        
+                    //LCDをまっさらにして終了
+                    lcdClearDisplay();
                 }
             }
             
@@ -168,11 +174,11 @@ void init() {
     
     // ピン属性設定
     ANSELA = 0b00000000;
-    ANSELB = 0b01110000;        //RB4、RB5、RB6をアナログに設定
-    ANSELC = 0b00000000;
+    ANSELB = 0b00110000;        //RB4、RB5をアナログに設定
+    ANSELC = 0b00001000;        //RC3をアナログに設定
     TRISA  = 0b00010011;        //RA0、RA1、RA3を入力に設定
-    TRISB  = 0b01110011;        //RB0、RB1、RB4、RB5、RB6を入力に設定
-    TRISC  = 0b00000000;
+    TRISB  = 0b00110011;        //RB0、RB1、RB4、RB5を入力に設定
+    TRISC  = 0b00001000;        //RC3を入力に設定
     
     //I2Cの設定
     SSP1STAT = 0x80;   // クロック信号は100kHzを使用
@@ -230,23 +236,33 @@ void init() {
     ADCON0bits.ADFRM0 = 1;
     ADCLKbits.ADCCS   = 0b000000;
     ADREFbits.ADPREF  = 0b00;
+    
+    //EEPROMの初期化
+    //P、I、Dはそれぞれ2バイトなため最初の6バイトに初期値である0を入れる
+    __EEPROM_DATA(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF);
 }
 
-void changePID() {
-    uint16_t val_p, val_i, val_d;
+void changePID(uint8_t addr1, uint8_t addr2, uint8_t channel, char pid) {
+    //前回の設定値を表示
+    lcdLocateCursor(5, 1);
+    uint8_t data1 = eeprom_read(addr1);
+    uint8_t data2 = eeprom_read(addr2);
+    uint16_t pre_val = (data1 << 4) | data2;
+    printf("%4d", pre_val);
     
-    ADPCHbits.ADPCH = 0b001100;     //B4のアナログ値を読み取り
-
+    ADPCHbits.ADPCH = channel;     //B4のアナログ値を読み取り
+        
     //Pの値を設定する
     lcdLocateCursor(1, 1);
-    printf("P");
+    printf("%c", pid);
     
+    uint16_t val;
     while(1) {
         ADGO = 1;
         while(ADGO);
         lcdLocateCursor(1, 2);
-        val_p = ADRES;
-        printf("%4d", val_p);
+        val = ADRES;
+        printf("%4d", val);
         
         //RA3が押されて、離されたら抜ける
         if(RA3) {
@@ -256,50 +272,12 @@ void changePID() {
         }
     }
     
-    ADPCHbits.ADPCH = 0b001101;     //B5のアナログ値を読み取り
+    //設定されたPをEEPROMに保存
+    uint8_t data3 = val >> 4;
+    uint8_t data4 = val & 0x0F;
+    eeprom_write(addr1, data3);
+    eeprom_write(addr2, data4);
     
-    //Iの値を設定する
-    lcdLocateCursor(1, 1);
-    printf("I");
-    
-    while(1) {
-        ADGO = 1;
-        while(ADGO);
-        lcdLocateCursor(1, 2);
-        val_i = ADRES;
-        printf("%4d", val_i);
-        
-        //RA3が押されて、離されたら抜ける
-        if(RA3) {
-            __delay_ms(100);        //チャタリング対策
-            while(RA3);
-            break;
-        }
-    }
-    
-    ADPCHbits.ADPCH = 0b001110;     //B6のアナログ値を読み取り
-    
-    //Dの値を設定する
-    lcdLocateCursor(1, 1);
-    printf("D");
-    
-    while(1) {
-        ADGO = 1;
-        while(ADGO);
-        lcdLocateCursor(1, 2);
-        val_d = ADRES;
-        printf("%4d", val_d);
-        
-        //RA3が押されて、離されたら抜ける
-        if(RA3) {
-            __delay_ms(100);        //チャタリング対策
-            while(RA3);
-            break;
-        }
-    }
-    
-    //LCDをまっさらにして終了
-    lcdClearDisplay();
     return;
 }
 
