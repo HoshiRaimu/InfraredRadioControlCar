@@ -48,13 +48,55 @@
 
 #define _XTAL_FREQ 1000000
 
+#define TARGET     512
+
 void init(void);
-void changePID(uint8_t, uint8_t, uint8_t, char);
+uint16_t changePID(uint8_t, uint8_t, uint8_t, char, uint16_t);
 
 void goForward(void);
 void goBack(void);
 void goRight(void);
 void goLeft(void);
+
+//フォトリフレクタからの入力用変数
+uint16_t in_pr1 = 0, in_pr2 = 0;
+
+uint16_t p, i, d;
+
+uint16_t diff_r[2] = {0, 0};
+uint16_t diff_l[2] = {0, 0};
+float integral_r = 0, integral_l = 0;
+uint16_t pid_r = 0, pid_l = 0;
+
+
+
+void __interrupt() isr(void) {      //タイマー4の割り込み
+    float val_p, val_i, val_d;
+    GIE = 0;
+    if(TMR4IF == 1) {
+        diff_r[0]  = diff_r[1];
+        diff_r[1]  = in_pr1 - TARGET;
+        integral_r = ((diff_r[0] + diff_r[1]) >> 2) * 0.1;      //本当は"/ 2"だが高速化のため">> 2"
+        
+        val_p = p / 100 * diff_r[1];
+        val_i = i / 100 * integral_r;
+        val_d = d / 1000 * (diff_r[1] - diff_r[0]) * 10;               //本当は"/ 0.1"だが高速化のため"* 10"
+        
+        pid_r = (uint16_t)(val_p + val_i + val_d);
+        
+        diff_l[0]  = diff_l[1];
+        diff_l[1]  = in_pr2 - TARGET;
+        integral_l = ((diff_l[0] + diff_l[1]) >> 2) * 0.1;      //本当は"/ 2"だが高速化のため">> 2"
+        
+        val_p = p / 100 * diff_l[1];
+        val_i = i / 100 * integral_l;
+        val_d = d / 1000 * (diff_l[1] - diff_l[0]) * 10;               //本当は"/ 0.1"だが高速化のため"* 10"
+        
+        pid_l = (uint16_t)(val_p + val_i + val_d);
+    }
+    TMR4IF = 0;
+    GIE = 1;
+}
 
 void main(void) {
     init();
@@ -69,34 +111,76 @@ void main(void) {
     
     //リーダーコードの長さに応じて赤外線を受信するかしないか判断
     bool receive;
+   
     
-    uint16_t data1 = 0;
+    //p、i、dの設定
+    uint8_t data1 = eeprom_read(0);
+    uint8_t data2 = eeprom_read(1);
+    p             = (data1 << 4) | data2;
     
+    data1 = eeprom_read(2);
+    data2 = eeprom_read(3);
+    i     = (data1 << 4) | data2;
+    
+    data1 = eeprom_read(4);
+    data2 = eeprom_read(5);
+    d     = (data1 << 4) | data2;
     
     while(1) {
         if(RA1) {
             //ライントレースモード
-            
             __delay_ms(100);        //チャタリング対策
             LATA2 = 1;              //LEDを点灯
             
-            while(RA1) {
+            TMR4ON = 1;             //タイマー4を開始
+                
+            while(RA1) {    
+                //ボタンが押されたらPIDを設定
                 if(RA3 == 1) {
+                    GIE = 0;                //割り込みを禁止
+                    
                     __delay_ms(100);        //チャタリング対策
                     while(RA3);
-                    changePID(0, 1, 0b00001100, 'P');       //B4のアナログ値を読み取り
-                    changePID(2, 3, 0b00001101, 'I');       //B5のアナログ値を読み取り
-                    changePID(4, 5, 0b00010011, 'D');       //C3のアナログ値を読み取り
+                    lcdClearDisplay();
+                    
+                    p = changePID(0, 1, 0b00001100, 'P', p);       //B4のアナログ値を読み取り
+                    i = changePID(2, 3, 0b00001101, 'I', i);       //B5のアナログ値を読み取り
+                    d = changePID(4, 5, 0b00010011, 'D', d);       //C3のアナログ値を読み取り
                         
                     //LCDをまっさらにして終了
                     lcdClearDisplay();
+                    
+                    GIE = 1;                //割り込みを許可
                 }
+                
+                lcdLocateCursor(1, 1);////
+                printf("%d", pid_r);////
+                lcdLocateCursor(1, 2);////
+                printf("%d", pid_l);//// 
+           
+                ADPCHbits.ADPCH = 0b001010;         //B2のアナログ値を読み取り
+                ADGO = 1;
+                while(ADGO);
+                in_pr1 = ADRES;
+
+                ADPCHbits.ADPCH = 0b001011;         //B3のアナログ値を読み取り
+                ADGO = 1;
+                while(ADGO);
+                in_pr2 = ADRES;
+            
+                //lcdLocateCursor(1, 1);
+                //printf("%4d", in_PR1);
+                //lcdLocateCursor(1, 2);
+                //printf("%4d", in_PR2);
+                
             }
             
+            TMR4ON = 0;            //タイマー4を停止
             LATA2 = 0;              //LEDを消灯
+            //LCDをまっさらにして終了
+            lcdClearDisplay();         
         } else {
             //赤外線ラジコンモード
-            
             //初期化
             receive = false;
             for(uint8_t i = 0; i < 4; i++) rcv_data[i] = 0;
@@ -174,10 +258,10 @@ void init() {
     
     // ピン属性設定
     ANSELA = 0b00000000;
-    ANSELB = 0b00110000;        //RB4、RB5をアナログに設定
+    ANSELB = 0b00111100;        //RB2、RB3RB4、RB5をアナログに設定
     ANSELC = 0b00001000;        //RC3をアナログに設定
-    TRISA  = 0b00010011;        //RA0、RA1、RA3を入力に設定
-    TRISB  = 0b00110011;        //RB0、RB1、RB4、RB5を入力に設定
+    TRISA  = 0b00001011;        //RA0、RA1、RA3を入力に設定
+    TRISB  = 0b00111111;        //RB0、RB1、RA2、RA3、RB4、RB5を入力に設定
     TRISC  = 0b00001000;        //RC3を入力に設定
     
     //I2Cの設定
@@ -206,7 +290,7 @@ void init() {
     PPSLOCKbits.PPSLOCKED = 1;      //PPS設定ロック
     
     //PWMの設定
-    T2CLKCONbits.CS = 0b0010;       //タイマ2に内部クロックを使用
+    T2CLKCONbits.CS = 0b0010;       //タイマー2に内部クロックを使用
     
     //CCP1の設定
     CCP1CONbits.EN   = 1;           //PWMを許可
@@ -221,7 +305,7 @@ void init() {
     CCPTMRS0bits.C1TSEL = 0b01;
     CCPTMRS0bits.C2TSEL = 0b01;
     
-    T2CONbits.CKPS     = 0b110;     //プリスケーラを64に設定
+    T2CONbits.CKPS     = 0b110;     //プリスケーラを1:64に設定
     PR2                = 77;        //50Hzに設定
     
     //CCP1のデューティーサイクルを設定
@@ -240,14 +324,22 @@ void init() {
     //EEPROMの初期化
     //P、I、Dはそれぞれ2バイトなため最初の6バイトに初期値である0を入れる
     __EEPROM_DATA(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF);
+    
+    //タイマー4の設定
+    T4CLKCONbits.CS = 0b0001;       //Fosc / 4を使用
+    T4CONbits.CKPS  = 0b110;        //プリスケーラ1:64を使用
+    T4CONbits.OUTPS = 0b1001;       //ポストスケーラ1:10を使用
+    T4CONbits.ON    = 0;            //タイマー4を停止
+    PR4             = 39;           //39までカウント(100ms)されたら割り込みするように設定
+    TMR4IF          = 0;            //タイマー4の割り込みフラグを0に設定
+    TMR4IE          = 1;            //タイマー4の割り込みを許可
+    PEIE            = 1;            //周辺機器の割り込みを許可
+    GIE             = 1;            //全体の割り込みを許可
 }
 
-void changePID(uint8_t addr1, uint8_t addr2, uint8_t channel, char pid) {
+uint16_t                                                                                                                                                                                                                                                                                                changePID(uint8_t addr1, uint8_t addr2, uint8_t channel, char pid, uint16_t pre_val) {
     //前回の設定値を表示
     lcdLocateCursor(5, 1);
-    uint8_t data1 = eeprom_read(addr1);
-    uint8_t data2 = eeprom_read(addr2);
-    uint16_t pre_val = (data1 << 4) | data2;
     printf("%4d", pre_val);
     
     ADPCHbits.ADPCH = channel;     //B4のアナログ値を読み取り
@@ -278,7 +370,7 @@ void changePID(uint8_t addr1, uint8_t addr2, uint8_t channel, char pid) {
     eeprom_write(addr1, data3);
     eeprom_write(addr2, data4);
     
-    return;
+    return val;
 }
 
 void goForward() {
