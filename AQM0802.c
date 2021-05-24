@@ -2,7 +2,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include "AQM0802.h"
-#define _XTAL_FREQ 1000000
+#define _XTAL_FREQ 32000000
 
 #define I2C_ACK 0x00
 #define I2C_NACK 0xff

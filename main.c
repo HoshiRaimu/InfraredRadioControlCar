@@ -46,7 +46,7 @@
 #include <stdbool.h>
 #include "AQM0802.h"
 
-#define _XTAL_FREQ 1000000
+#define _XTAL_FREQ 32000000
 
 #define TARGET     512
 
@@ -68,7 +68,7 @@ uint16_t diff_l[2] = {0, 0};
 float integral_r = 0, integral_l = 0;
 uint16_t pid_r = 0, pid_l = 0;
 
-
+uint16_t cnt = 0;
 
 void __interrupt() isr(void) {      //タイマー4の割り込み
     float val_p, val_i, val_d;
@@ -93,12 +93,15 @@ void __interrupt() isr(void) {      //タイマー4の割り込み
         val_d = d / 1000 * (diff_l[1] - diff_l[0]) * 10;               //本当は"/ 0.1"だが高速化のため"* 10"
         
         pid_l = (uint16_t)(val_p + val_i + val_d);
+        
+        cnt++;
     }
     TMR4IF = 0;
     GIE = 1;
 }
 
 void main(void) {
+    
     init();
     
     uint8_t rcv_data[4];
@@ -109,6 +112,19 @@ void main(void) {
     // LCD初期化
     lcdInitialize();
     
+    TMR2ON = 1;
+    CCPR1H = (uint8_t)(1000 >> 2);
+    CCPR1L = (uint8_t)(1000 << 6);
+    
+    
+    uint16_t cnt = 0;
+    while(1) {
+        __delay_ms(1000);
+        lcdLocateCursor(1, 1);
+        printf("%d", cnt);
+        cnt++;
+    }
+    /*
     //リーダーコードの長さに応じて赤外線を受信するかしないか判断
     bool receive;
    
@@ -154,7 +170,7 @@ void main(void) {
                 }
                 
                 lcdLocateCursor(1, 1);////
-                printf("%d", pid_r);////
+                printf("%d", cnt);////
                 lcdLocateCursor(1, 2);////
                 printf("%d", pid_l);//// 
            
@@ -245,7 +261,7 @@ void main(void) {
             }
         }
     }
-    
+    */
         
     return;
 }
@@ -254,7 +270,7 @@ void init() {
     // 動作周波数設定
     OSCCON1bits.NOSC = 0b110;   // 内部クロック使用
     OSCCON1bits.NDIV = 0b0000;  // 分周1:1
-    OSCFRQbits.HFFRQ = 0b000;   // 1MHz
+    OSCFRQbits.HFFRQ = 0b110;   // 32MHz
     
     // ピン属性設定
     ANSELA = 0b00000000;
@@ -270,11 +286,12 @@ void init() {
     SSP1CON3 = 0x00;   // CON3はデフォルト設定
     SSP1ADD  = 0x09;   //クロック信号速度を100kHzに設定
     
+    
     //Timer1の設定
-    T1CLKbits.CS   = 0b0010;        //システムクロックを使用
-    T1CONbits.CKPS = 0b00;          //プリスケール値は1:1
-    //T1CONbits.RD16 = 0;             //16ビットの値を読めるように許可
-    T1CONbits.ON   = 0;             //タイマー1を停止
+    //T1CLKbits.CS   = 0b0010;        //システムクロックを使用
+    //T1CONbits.CKPS = 0b00;          //プリスケール値は1:1
+    ////T1CONbits.RD16 = 0;             //16ビットの値を読めるように許可
+    //T1CONbits.ON   = 0;             //タイマー1を停止
     
     //PPSの設定
     PPSLOCKbits.PPSLOCKED = 0;      //PPS設定ロックの解除
@@ -288,6 +305,7 @@ void init() {
     RB0PPS     = 0x15;              //RB0をSDAに割り当て
     RB1PPS     = 0x14;              //RB1をSCLに割り当て
     PPSLOCKbits.PPSLOCKED = 1;      //PPS設定ロック
+    
     
     //PWMの設定
     T2CLKCONbits.CS = 0b0010;       //タイマー2に内部クロックを使用
@@ -305,9 +323,12 @@ void init() {
     CCPTMRS0bits.C1TSEL = 0b01;
     CCPTMRS0bits.C2TSEL = 0b01;
     
-    T2CONbits.CKPS     = 0b110;     //プリスケーラを1:64に設定
-    PR2                = 77;        //50Hzに設定
+    T2CLKCONbits.CS = 0b0001;       //Fosc / 4を使用
+    T2CONbits.CKPS  = 0b101;     //プリスケーラを1:32に設定
+    T2CONbits.OUTPS = 0b1001;       //ポストスケーラ1:10を使用
+    PR2             = 124;        //50Hzに設定
     
+    /*
     //CCP1のデューティーサイクルを設定
     CCPR1H = (uint8_t)(100 >> 2);
     CCPR1L = (uint8_t)(100 << 6);
@@ -335,6 +356,7 @@ void init() {
     TMR4IE          = 1;            //タイマー4の割り込みを許可
     PEIE            = 1;            //周辺機器の割り込みを許可
     GIE             = 1;            //全体の割り込みを許可
+    */
 }
 
 uint16_t                                                                                                                                                                                                                                                                                                changePID(uint8_t addr1, uint8_t addr2, uint8_t channel, char pid, uint16_t pre_val) {
