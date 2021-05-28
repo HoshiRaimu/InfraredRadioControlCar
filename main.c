@@ -68,37 +68,32 @@ uint16_t diff_l[2] = {0, 0};
 float integral_r = 0, integral_l = 0;
 uint16_t pid_r = 0, pid_l = 0;
 
-uint16_t cnt = 0;
+uint32_t cnt = 0;
 
-void __interrupt() isr(void) {      //タイマー4の割り込み
-    float val_p, val_i, val_d;
+void __interrupt() isr(void) {
     GIE = 0;
-    if(TMR4IF == 1) {
-        diff_r[0]  = diff_r[1];
-        diff_r[1]  = in_pr1 - TARGET;
-        integral_r = ((diff_r[0] + diff_r[1]) >> 2) * 0.1;      //本当は"/ 2"だが高速化のため">> 2"
+    if(TMR2IF == 1) {           //Timer2の割り込み、20msの周期
+        LATC0 = 1;              //RC0をHIGH
+        LATC1 = 1;              //RC1をHIGH
+
+        T4CONbits.ON = 1;       //Timer4を開始
+        T6CONbits.ON = 1;       //Timer6を開始
         
-        val_p = p / 100 * diff_r[1];
-        val_i = i / 100 * integral_r;
-        val_d = d / 1000 * (diff_r[1] - diff_r[0]) * 10;               //本当は"/ 0.1"だが高速化のため"* 10"
+        TMR2IF = 0;             //割り込みフラグをクリア
         
-        pid_r = (uint16_t)(val_p + val_i + val_d);
+    } else if(TMR4IF == 1) {    //Timer4の割り込み
+        LATC0 = 0;              //RC0をLOW
+        T4CONbits.ON = 0;       //Timer4を停止
+        TMR4IF = 0;             //割り込みフラグをクリア
         
-        diff_l[0]  = diff_l[1];
-        diff_l[1]  = in_pr2 - TARGET;
-        integral_l = ((diff_l[0] + diff_l[1]) >> 2) * 0.1;      //本当は"/ 2"だが高速化のため">> 2"
-        
-        val_p = p / 100 * diff_l[1];
-        val_i = i / 100 * integral_l;
-        val_d = d / 1000 * (diff_l[1] - diff_l[0]) * 10;               //本当は"/ 0.1"だが高速化のため"* 10"
-        
-        pid_l = (uint16_t)(val_p + val_i + val_d);
-        
-        cnt++;
+    } else if(TMR6IF == 1) {    //Timer6の割り込み
+        LATC1 = 0;              //RC1をLOW
+        T6CONbits.ON = 0;       //Timer6を停止
+        TMR6IF = 0;             //割り込みフラグをクリア
     }
-    TMR4IF = 0;
     GIE = 1;
 }
+
 
 void main(void) {
     
@@ -116,13 +111,31 @@ void main(void) {
     CCPR1H = (uint8_t)(1000 >> 2);
     CCPR1L = (uint8_t)(1000 << 6);
     
-    
+    bool receive;
+    /*
     uint16_t cnt = 0;
     while(1) {
         __delay_ms(1000);
         lcdLocateCursor(1, 1);
         printf("%d", cnt);
         cnt++;
+    }
+    */
+    
+    lcdLocateCursor(1, 1);
+    //T2CONbits.ON     =  1;           //タイマー2停止
+    //T4CONbits.ON     =  1;
+    //初期化
+    while(1) {
+        if(RA3) {
+            __delay_ms(100);
+            T2CONbits.ON     =  1;           //タイマー2停止
+            //T4CONbits.ON     =  1;
+            while(RA3);
+        } else {
+            T2CONbits.ON     =  0;           //タイマー2停止
+            //T4CONbits.ON     =  0;
+        }
     }
     /*
     //リーダーコードの長さに応じて赤外線を受信するかしないか判断
@@ -281,82 +294,64 @@ void init() {
     TRISC  = 0b00001000;        //RC3を入力に設定
     
     //I2Cの設定
-    SSP1STAT = 0x80;   // クロック信号は100kHzを使用
-    SSP1CON1 = 0x28;   // I2C通信のマスターモードを有効化
-    SSP1CON3 = 0x00;   // CON3はデフォルト設定
-    SSP1ADD  = 0x09;   //クロック信号速度を100kHzに設定
+    SSP1STAT = 0x80;            // クロック信号は100kHzを使用
+    SSP1CON1 = 0x28;            // I2C通信のマスターモードを有効化
+    SSP1CON3 = 0x00;            // CON3はデフォルト設定
+    SSP1ADD  = 0x09;            //クロック信号速度を100kHzに設定
     
     
     //Timer1の設定
-    //T1CLKbits.CS   = 0b0010;        //システムクロックを使用
-    //T1CONbits.CKPS = 0b00;          //プリスケール値は1:1
-    ////T1CONbits.RD16 = 0;             //16ビットの値を読めるように許可
-    //T1CONbits.ON   = 0;             //タイマー1を停止
+    T1CLKbits.CS   = 0b0001;        //Fosc/4を使用
+    T1CONbits.CKPS = 0b11;          //プリスケール値は1:8
+    T1CONbits.ON   = 0;             //タイマー1を停止
+    
+    //Timer2の設定
+    T2CLKCONbits.CS = 0b0001;       //Fosc / 4を使用
+    T2CONbits.CKPS  = 0b111;        //プリスケーラを1:128
+    T2CONbits.OUTPS = 0b1001;       //ポストスケーラ1:10を使用
+    PR2             = 25;           //50Hzに設定
+    T2CONbits.ON    = 0;            //タイマー2停止
+    TMR2IF          = 0;            //タイマー2の割り込みフラグを0に設定
+    TMR2IE          = 1;            //タイマー2の割り込みを許可
+    PEIE            = 1;            //周辺機器の割り込みを許可
+    GIE             = 1;            //全体の割り込みを許可
+    
+    //Timer4の設定
+    T4CLKCONbits.CS = 0b0001;       //Fosc / 4を使用
+    T4CONbits.CKPS  = 0b100;        //プリスケーラ1:16を使用
+    T4CONbits.OUTPS = 0b1001;       //ポストスケーラ1:10を使用
+    PR4             = 85;           //この値を変化させ、サーボモーターを制御
+    T4CONbits.ON    = 0;            //タイマー4を停止
+    TMR4IF          = 0;            //タイマー4の割り込みフラグを0に設定
+    TMR4IE          = 1;            //タイマー4の割り込みを許可
+    
+    //Timer6設定
+    T6CLKCONbits.CS = 0b0001;       //Fosc / 4を使用
+    T6CONbits.CKPS  = 0b100;        //プリスケーラ1:16を使用
+    T6CONbits.OUTPS = 0b1001;       //ポストスケーラ1:10を使用
+    PR6             = 85;           //この値を変化させ、サーボモーターを制御
+    T6CONbits.ON    = 0;            //タイマー6を停止
+    TMR6IF          = 0;            //タイマー6の割り込みフラグを0に設定
+    TMR6IE          = 1;            //タイマー6の割り込みを許可
     
     //PPSの設定
     PPSLOCKbits.PPSLOCKED = 0;      //PPS設定ロックの解除
-    //PWMの割り当て
-    RC0PPS = 0x09;                  //RC0にCCP1を割り当て     
-    RC1PPS = 0x0A;                  //RC1にCCP2を割り当て
-    
     //I2Cの設定
     SSP1DATPPS = 0x08;              //SDA入力部をRB0に割り当て
     SSP1CLKPPS = 0x09;              //SCL入力部をRB1に割り当て
     RB0PPS     = 0x15;              //RB0をSDAに割り当て
     RB1PPS     = 0x14;              //RB1をSCLに割り当て
     PPSLOCKbits.PPSLOCKED = 1;      //PPS設定ロック
+
     
-    
-    //PWMの設定
-    T2CLKCONbits.CS = 0b0010;       //タイマー2に内部クロックを使用
-    
-    //CCP1の設定
-    CCP1CONbits.EN   = 1;           //PWMを許可
-    CCP1CONbits.FMT  = 1;           //right-aligned formatに設定
-    CCP1CONbits.MODE = 0b1111;      //PWMモードに設定
-    //CCP2の設定
-    CCP2CONbits.EN   = 1;
-    CCP2CONbits.FMT  = 1;
-    CCP2CONbits.MODE = 0b1111;
-    
-    //CCP1と2にタイマ2を使用
-    CCPTMRS0bits.C1TSEL = 0b01;
-    CCPTMRS0bits.C2TSEL = 0b01;
-    
-    T2CLKCONbits.CS = 0b0001;       //Fosc / 4を使用
-    T2CONbits.CKPS  = 0b101;     //プリスケーラを1:32に設定
-    T2CONbits.OUTPS = 0b1001;       //ポストスケーラ1:10を使用
-    PR2             = 124;        //50Hzに設定
-    
-    /*
-    //CCP1のデューティーサイクルを設定
-    CCPR1H = (uint8_t)(100 >> 2);
-    CCPR1L = (uint8_t)(100 << 6);
-    
-    //CCP2のデューティーサイクルを設定
-    CCPR2H = (uint8_t)(33 >> 2);
-    CCPR2L = (uint8_t)(33 << 6);
-    
-    ADCON0bits.ADON   = 1;
-    ADCON0bits.ADFRM0 = 1;
-    ADCLKbits.ADCCS   = 0b000000;
-    ADREFbits.ADPREF  = 0b00;
+    ADCON0bits.ADON   = 1;          //ADCを許可
+    ADCON0bits.ADFRM0 = 1;          //結果数値を右詰めに設定
+    ADCLKbits.ADCCS   = 0b000000;   //Fosc / 2を使用
+    ADREFbits.ADPREF  = 0b00;       //基準電圧は電源電圧
     
     //EEPROMの初期化
     //P、I、Dはそれぞれ2バイトなため最初の6バイトに初期値である0を入れる
     __EEPROM_DATA(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF);
-    
-    //タイマー4の設定
-    T4CLKCONbits.CS = 0b0001;       //Fosc / 4を使用
-    T4CONbits.CKPS  = 0b110;        //プリスケーラ1:64を使用
-    T4CONbits.OUTPS = 0b1001;       //ポストスケーラ1:10を使用
-    T4CONbits.ON    = 0;            //タイマー4を停止
-    PR4             = 39;           //39までカウント(100ms)されたら割り込みするように設定
-    TMR4IF          = 0;            //タイマー4の割り込みフラグを0に設定
-    TMR4IE          = 1;            //タイマー4の割り込みを許可
-    PEIE            = 1;            //周辺機器の割り込みを許可
-    GIE             = 1;            //全体の割り込みを許可
-    */
 }
 
 uint16_t                                                                                                                                                                                                                                                                                                changePID(uint8_t addr1, uint8_t addr2, uint8_t channel, char pid, uint16_t pre_val) {
@@ -396,14 +391,13 @@ uint16_t                                                                        
 }
 
 void goForward() {
-    TMR2ON = 1;
-    
-    CCPR1H = (uint8_t)(60 >> 2);
+    PR4 = 40;
     CCPR1L = (uint8_t)(60 << 6);
     
     CCPR2H = (uint8_t)(130 >> 2);
     CCPR2L = (uint8_t)(130 << 6);
     
+    TMR2ON = 1;
     __delay_ms(100);
     TMR2ON = 0;
     
