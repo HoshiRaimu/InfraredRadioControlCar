@@ -48,7 +48,7 @@
 
 #define _XTAL_FREQ 32000000
 
-#define TARGET     512
+#define TARGET     300
 
 void init(void);
 uint16_t changePID(uint8_t, uint8_t, uint8_t, char, uint16_t);
@@ -63,16 +63,24 @@ uint16_t in_pr1 = 0, in_pr2 = 0;
 
 uint16_t p, i, d;
 
-uint16_t diff_r[2] = {0, 0};
-uint16_t diff_l[2] = {0, 0};
+int diff_r[2] = {0, 0};
+int diff_l[2] = {0, 0};
 float integral_r = 0, integral_l = 0;
-uint16_t pid_r = 0, pid_l = 0;
+uint32_t pid_r = 0, pid_l = 0;
+float val_p, val_i, val_d;
 
-uint32_t cnt = 0;
+uint32_t millis = 0;
+float dt = 0;
+uint32_t now = 0, prev = 0;
 
 void __interrupt() isr(void) {
     GIE = 0;
-    if(TMR2IF == 1) {           //Timer2の割り込み、20msの周期
+    if(TMR3IF == 1) {
+        millis++;
+        TMR3H = (64536 >>8);            //タイマー3の初期化(65536 - 1000 = 64536);
+        TMR3L = (64536 & 0x00FF);
+        TMR3IF = 0;
+    } else if(TMR2IF == 1) {    //Timer2の割り込み、20msの周期
         LATC0 = 1;              //RC0をHIGH
         LATC1 = 1;              //RC1をHIGH
 
@@ -107,37 +115,6 @@ void main(void) {
     // LCD初期化
     lcdInitialize();
     
-    TMR2ON = 1;
-    CCPR1H = (uint8_t)(1000 >> 2);
-    CCPR1L = (uint8_t)(1000 << 6);
-    
-    bool receive;
-    /*
-    uint16_t cnt = 0;
-    while(1) {
-        __delay_ms(1000);
-        lcdLocateCursor(1, 1);
-        printf("%d", cnt);
-        cnt++;
-    }
-    */
-    
-    lcdLocateCursor(1, 1);
-    //T2CONbits.ON     =  1;           //タイマー2停止
-    //T4CONbits.ON     =  1;
-    //初期化
-    while(1) {
-        if(RA3) {
-            __delay_ms(100);
-            T2CONbits.ON     =  1;           //タイマー2停止
-            //T4CONbits.ON     =  1;
-            while(RA3);
-        } else {
-            T2CONbits.ON     =  0;           //タイマー2停止
-            //T4CONbits.ON     =  0;
-        }
-    }
-    /*
     //リーダーコードの長さに応じて赤外線を受信するかしないか判断
     bool receive;
    
@@ -161,11 +138,15 @@ void main(void) {
             __delay_ms(100);        //チャタリング対策
             LATA2 = 1;              //LEDを点灯
             
-            TMR4ON = 1;             //タイマー4を開始
+            TMR3ON = 1;             //タイマー3を開始
+            
+            TMR2ON = 1;
                 
             while(RA1) {    
                 //ボタンが押されたらPIDを設定
                 if(RA3 == 1) {
+                    TMR3ON = 0;
+                    TMR2ON = 0;
                     GIE = 0;                //割り込みを禁止
                     
                     __delay_ms(100);        //チャタリング対策
@@ -180,13 +161,19 @@ void main(void) {
                     lcdClearDisplay();
                     
                     GIE = 1;                //割り込みを許可
+                    TMR3ON = 1;
+                    TMR2ON = 1;
                 }
+                __delay_ms(100);
                 
                 lcdLocateCursor(1, 1);////
-                printf("%d", cnt);////
+                printf("%8d", pid_r);////
                 lcdLocateCursor(1, 2);////
-                printf("%d", pid_l);//// 
-           
+                printf("%8d", pid_l);//// 
+
+                
+                
+ 
                 ADPCHbits.ADPCH = 0b001010;         //B2のアナログ値を読み取り
                 ADGO = 1;
                 while(ADGO);
@@ -196,15 +183,47 @@ void main(void) {
                 ADGO = 1;
                 while(ADGO);
                 in_pr2 = ADRES;
-            
-                //lcdLocateCursor(1, 1);
-                //printf("%4d", in_PR1);
-                //lcdLocateCursor(1, 2);
-                //printf("%4d", in_PR2);
                 
+                prev = now;
+                now = millis;
+                dt = (now - prev) * 0.001;
+               
+                
+                diff_r[0]  = diff_r[1];
+                diff_r[1]  = in_pr1 - TARGET;
+                integral_r += ((diff_r[0] + diff_r[1]) / 2.0) * dt;      //本当は"/ 2"だが高速化のため">> 2"
+
+                val_p = (p * 0.0001) * diff_r[1];
+                val_i = (i * 0.0001) * integral_r;
+                val_d = (d * 0.00001) * (diff_r[1] - diff_r[0]) / dt;               //本当は"/ 0.1"だが高速化のため"* 10"
+
+                pid_r = (uint16_t)(val_p + val_i + val_d);
+
+                diff_l[0]  = diff_l[1];
+                diff_l[1]  = in_pr2 - TARGET;
+                integral_l += ((diff_l[0] + diff_l[1]) / 2.0) * dt;      //本当は"/ 2"だが高速化のため">> 2"
+
+                val_p = p * 0.0001 * diff_l[1];
+                val_i = i * 0.0001 * integral_l;
+                val_d = d * 0.00001 * (diff_l[1] - diff_l[0]) / dt;               //本当は"/ 0.1"だが高速化のため"* 10"
+
+                pid_l = (uint16_t)(val_p + val_i + val_d);
+                
+                /*
+                uint8_t tmp1, tmp2;
+                if(pid_r < 0) tmp1 = 0;
+                else if(pid_r > 40) tmp1 = 40;
+                
+                if(pid_l < 0) tmp2 = 0;
+                else if(pid_l > 40) tmp2 = 40;
+                */
+                //PR4 = 70 - pid_r;
+                //PR6 = 80 + pid_l;
             }
             
-            TMR4ON = 0;            //タイマー4を停止
+            TMR3ON = 0;            //タイマー4を停止
+            TMR2ON = 0;
+            
             LATA2 = 0;              //LEDを消灯
             //LCDをまっさらにして終了
             lcdClearDisplay();         
@@ -274,8 +293,6 @@ void main(void) {
             }
         }
     }
-    */
-        
     return;
 }
 
@@ -305,6 +322,17 @@ void init() {
     T1CONbits.CKPS = 0b11;          //プリスケール値は1:8
     T1CONbits.ON   = 0;             //タイマー1を停止
     
+    //Timer3の設定
+    T3CLKbits.CS   = 0b0001;        //Fosc/4を使用
+    T3CONbits.CKPS = 0b11;          //プリスケール値は1:8
+    T3CONbits.ON   = 0;             //タイマー3を停止
+    TMR3H = (64536 >>8);            //タイマー3の初期化(65536 - 1000 = 64536);
+    TMR3L = (64536 & 0x00FF);
+    TMR3IF          = 0;            //タイマー3の割り込みフラグを0に設定
+    TMR3IE          = 1;            //タイマー3の割り込みを許可
+    PEIE            = 1;            //周辺機器の割り込みを許可
+    GIE             = 1;            //全体の割り込みを許可
+    
     //Timer2の設定
     T2CLKCONbits.CS = 0b0001;       //Fosc / 4を使用
     T2CONbits.CKPS  = 0b111;        //プリスケーラを1:128
@@ -313,8 +341,6 @@ void init() {
     T2CONbits.ON    = 0;            //タイマー2停止
     TMR2IF          = 0;            //タイマー2の割り込みフラグを0に設定
     TMR2IE          = 1;            //タイマー2の割り込みを許可
-    PEIE            = 1;            //周辺機器の割り込みを許可
-    GIE             = 1;            //全体の割り込みを許可
     
     //Timer4の設定
     T4CLKCONbits.CS = 0b0001;       //Fosc / 4を使用
@@ -346,7 +372,7 @@ void init() {
     
     ADCON0bits.ADON   = 1;          //ADCを許可
     ADCON0bits.ADFRM0 = 1;          //結果数値を右詰めに設定
-    ADCLKbits.ADCCS   = 0b000000;   //Fosc / 2を使用
+    ADCLKbits.ADCCS   = 0b111111;   //Fosc / 128を使用
     ADREFbits.ADPREF  = 0b00;       //基準電圧は電源電圧
     
     //EEPROMの初期化
@@ -354,7 +380,7 @@ void init() {
     __EEPROM_DATA(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF);
 }
 
-uint16_t                                                                                                                                                                                                                                                                                                changePID(uint8_t addr1, uint8_t addr2, uint8_t channel, char pid, uint16_t pre_val) {
+uint16_t changePID(uint8_t addr1, uint8_t addr2, uint8_t channel, char pid, uint16_t pre_val) {
     //前回の設定値を表示
     lcdLocateCursor(5, 1);
     printf("%4d", pre_val);
@@ -382,20 +408,17 @@ uint16_t                                                                        
     }
     
     //設定されたPをEEPROMに保存
-    uint8_t data3 = val >> 4;
-    uint8_t data4 = val & 0x0F;
-    eeprom_write(addr1, data3);
-    eeprom_write(addr2, data4);
+    uint8_t data1 = val >> 4;
+    uint8_t data2 = val & 0x0F;
+    eeprom_write(addr1, data1);
+    eeprom_write(addr2, data2);
     
     return val;
 }
 
 void goForward() {
     PR4 = 40;
-    CCPR1L = (uint8_t)(60 << 6);
-    
-    CCPR2H = (uint8_t)(130 >> 2);
-    CCPR2L = (uint8_t)(130 << 6);
+    PR6 = 110;
     
     TMR2ON = 1;
     __delay_ms(100);
@@ -405,46 +428,34 @@ void goForward() {
 }
 
 void goBack() {
+    PR4 = 110;
+    PR6 =40;
+    
     TMR2ON = 1;
-    
-    CCPR1H = (uint8_t)(130 >> 2);
-    CCPR1L = (uint8_t)(130 << 6);
-    
-    CCPR2H = (uint8_t)(60 >> 2);
-    CCPR2L = (uint8_t)(60 << 6);
-                                                                                                                                                                                  
     __delay_ms(100);
     TMR2ON = 0;
-
+    
     return;
 }
 
 void goRight() {
+    PR4 = 110;
+    PR6 = 110;
+    
     TMR2ON = 1;
-    
-    CCPR1H = (uint8_t)(130 >> 2);
-    CCPR1L = (uint8_t)(130 << 6);
-    
-    CCPR2H = (uint8_t)(130 >> 2);
-    CCPR2L = (uint8_t)(130 << 6);
-    
     __delay_ms(100);
     TMR2ON = 0;
-
+    
     return;
 }
 
 void goLeft() {
+    PR4 = 40;
+    PR6 = 40;
+    
     TMR2ON = 1;
-    
-    CCPR1H = (uint8_t)(60 >> 2);
-    CCPR1L = (uint8_t)(60 << 6);
-    
-    CCPR2H = (uint8_t)(60 >> 2);
-    CCPR2L = (uint8_t)(60 << 6);
-    
     __delay_ms(100);
     TMR2ON = 0;
-
+    
     return;
 }
