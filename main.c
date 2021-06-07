@@ -56,16 +56,22 @@ void goBack(uint8_t);
 void goRight(uint8_t);
 void goLeft(uint8_t);
 
-void putch(uint8_t data) {
+uint16_t measureDist(void);
+void avoidObs(void);
+
+void putch(uint8_t data) 
+{
     while(!TRMT);
     TX1REG = data;
     
     return;
 }
 
-void __interrupt() isr(void) {
+void __interrupt() isr(void) 
+{
     GIE = 0;
-    if(TMR2IF == 1) {    //Timer2の割り込み、20msの周期
+    if(TMR2IF == 1)             //Timer2の割り込み、20msの周期
+    {   
         LATC0 = 1;              //RC0をHIGH
         LATC1 = 1;              //RC1をHIGH
 
@@ -74,12 +80,14 @@ void __interrupt() isr(void) {
         
         TMR2IF = 0;             //割り込みフラグをクリア
         
-    } else if(TMR4IF == 1) {    //Timer4の割り込み
+    } else if(TMR4IF == 1)      //Timer4の割り込み
+    {    
         LATC0 = 0;              //RC0をLOW
         T4CONbits.ON = 0;       //Timer4を停止
         TMR4IF = 0;             //割り込みフラグをクリア
         
-    } else if(TMR6IF == 1) {    //Timer6の割り込み
+    } else if(TMR6IF == 1)      //Timer6の割り込み
+    {    
         LATC1 = 0;              //RC1をLOW
         T6CONbits.ON = 0;       //Timer6を停止
         TMR6IF = 0;             //割り込みフラグをクリア
@@ -88,7 +96,8 @@ void __interrupt() isr(void) {
 }
 
 
-void main(void) {
+void main(void) 
+{
     
     init();
     
@@ -104,53 +113,49 @@ void main(void) {
     ADPCHbits.ADPCH = 0b00001100; 
     uint16_t val;
     
-    while(1) {
-        if(RA1) {
+    while(1) 
+    {
+        if(RA1) 
+        {
             LATA2 = 1;          //LEDを点灯
             
-            //TRIGを10usHIGHにする
-            TRIG = 1;
-            __delay_us(10);
-            TRIG = 0;
+            while(RA2) 
+            {
+                dist = measureDist();
 
-            //ECHOが返ってくるまでの時間を計測
-            TMR3ON = 1;
-            while(!ECHO);
-            while(ECHO);
-            TMR3ON = 0;
-            
-            //距離を計算
-            echo_time = TMR3;
-            echo_time = echo_time * 5 / 10;
-            dist = echo_time * 34 / 1000;
-
-            if(dist < 400) {
-                //if(dist > 15) goForward();
+                if(dist < 400) 
+                {
+                    if(dist > 15) goForward(0);
+                }
+                printf("%d\n", dist);
+                TMR3 = 0;
+                 __delay_ms(100);
             }
-            printf("%d\n", dist);
-            TMR3 = 0;
-             __delay_ms(100);
 
             LATA2 = 0;              //LEDを消灯   
-        } else {
+        } else 
+        {
             //赤外線ラジコンモード
             //初期化
             receive = false;
             for(uint8_t i = 0; i < 4; i++) rcv_data[i] = 0;
 
             //何も受信していない間の時間つぶし
-            while(RA0) {
+            while(RA0) 
+            {
                 if(RA1) break;      //モード変更スイッチが押されてたらbreak
             }
 
             //受信し始めたらカウンタの値を初期化し、タイマをスタート
-            if(!RA0) {
+            if(!RA0) 
+            {
                 TMR1H  = 0;
                 TMR1L  = 0;
                 TMR1ON = 1;
             }
             //HIGHの時間を計測
-            while(!RA0) {
+            while(!RA0) 
+            {
                 if(RA1) break;      //モード変更スイッチが押されてたらbreak
             }
             TMR1ON = 0;
@@ -159,17 +164,22 @@ void main(void) {
             if(TMR1H >= 0x1F && TMR1H <= 0x27) receive = true;
 
             //LOWの時間つぶし
-            while(RA0) {
+            while(RA0) 
+            {
                 if(RA1) break;      //モード変更スイッチが押されてたらbreak
             }
 
             //データの受信
-            if(receive) {
-                for(int i = 0; i < 4; i++) {
+            if(receive) 
+            {
+                for(int i = 0; i < 4; i++) 
+                {
                     rcv_data[i] = 0;
-                    for(int j = 7; j >= 0; j--) {
+                    for(int j = 7; j >= 0; j--) 
+                    {
                         //HIGHの時間つぶし
-                        while(!RA0) {
+                        while(!RA0) 
+                        {
                             if(RA1) break;      //モード変更スイッチが押されてたらbreak
                         }
 
@@ -177,24 +187,27 @@ void main(void) {
                         TMR1H  = 0;
                         TMR1L  = 0;
                         TMR1ON = 1;
-                        while(RA0) {
+                        while(RA0) 
+                        {
                             if(RA1) break;      //モード変更スイッチが押されてたらbreak
                         }
                         TMR1ON = 0;
 
                         //LOWの時間が0x04よりも長ければ1と判断
-                        if(TMR1H >= 0x04) {
+                        if(TMR1H >= 0x04) 
+                        {
                             rcv_data[i] = rcv_data[i] | (uint8_t)(0b00000001 << j);
                         }
                     }
                 }
             }
             
-            if(rcv_data[0] == 'S' && rcv_data[1] == 'C') {
-                if(rcv_data[3] == 0x00)      goForward(rcv_data[2]);
-                else if(rcv_data[3] == 0x01) goLeft(rcv_data[2]);
-                else if(rcv_data[3] == 0x02) goBack(rcv_data[2]);
-                else if(rcv_data[3] == 0x03) goRight(rcv_data[2]);
+            if(rcv_data[0] == 'S' && rcv_data[1] == 'C') 
+            {
+                if(rcv_data[3] == 0x00)      goForward(rcv_data[2] * 19 / 31);          //0~31の値を0~19の値に変換してあげる
+                else if(rcv_data[3] == 0x01) goLeft(rcv_data[2] * 19 / 31);
+                else if(rcv_data[3] == 0x02) goBack(rcv_data[2] * 19 / 31);
+                else if(rcv_data[3] == 0x03) goRight(rcv_data[2] * 19 / 31);
             }
         }
     }
@@ -202,7 +215,8 @@ void main(void) {
     return;
 }
 
-void init() {
+void init() 
+{
     // 動作周波数設定
     OSCCON1bits.NOSC = 0b110;   // 内部クロック使用
     OSCCON1bits.NDIV = 0b0000;  // 分周1:1
@@ -271,57 +285,108 @@ void init() {
     SP1BRG = 832;
 }
 
-void forward(uint8_t speed) {
+void goForward(uint8_t speed) 
+{
     PR4 = 70 - speed;
-    PR6 = 80 + speed;
+    PR6 = 77 + speed;
     
     TMR2ON = 1;
-    __delay_ms(100);
-    TMR2ON = 0;
-    
-    return;
-}
-void goForward(uint8_t speed) {
-    PR4 = 70 - speed;
-    PR6 = 80 + speed;
-    
-    TMR2ON = 1;
-    __delay_ms(100);
+    __delay_ms(50);
     TMR2ON = 0;
     
     return;
 }
 
-void goBack(uint8_t speed) {
-    PR4 = 80 + speed;
+void goBack(uint8_t speed) 
+{
+    PR4 = 77 + speed;
     PR6 = 70 - speed;
     
     TMR2ON = 1;
-    __delay_ms(100);
+    __delay_ms(50);
     TMR2ON = 0;
     
     return;
 }
 
-void goRight(uint8_t speed) {
+void goRight(uint8_t speed) 
+{
     PR4 = 80 + speed;
     PR6 = 81 + speed;               //どちらも80にするとモーターが止まらない
                                     //おそらく値を同じにすると同時に割り込みが発生するため
     
     TMR2ON = 1;
-    __delay_ms(100);
+    __delay_ms(50);
     TMR2ON = 0;
     
     return;
 }
 
-void goLeft(uint8_t speed) {
+void goLeft(uint8_t speed) 
+{
     PR4 = 70 - speed;
     PR6 = 71 - speed;
     
     TMR2ON = 1;
-    __delay_ms(100);
+    __delay_ms(50);
     TMR2ON = 0;
+    
+    return;
+}
+
+uint16_t measureDist() 
+{
+    //TRIGを10usHIGHにする
+    TRIG = 1;
+    __delay_us(10);
+    TRIG = 0;
+
+    //ECHOが返ってくるまでの時間を計測
+    TMR3ON = 1;
+    while(!ECHO);
+    while(ECHO);
+    TMR3ON = 0;
+
+    //距離を計算
+    uint32_t echo_time = TMR3;
+    echo_time = echo_time * 5 / 10;
+    uint16_t dist = echo_time * 34 / 1000;    
+    
+    return dist;
+}
+
+void avoidObs()
+{
+    uint16_t dist[10];
+    for(uint8_t i = 0; i < 5; i++)
+    {
+        goLeft(0);
+        dist[i] = measureDist();
+        if(dist[i] > 400) dist[i] = 400;
+    }
+    goRight(0);             //元に戻す
+    for(uint8_t i = 0; i < 5; i++)
+    {
+        goRight(0);
+        dist[i + 5] = measureDist();
+        if(dist[i + 5] > 400) dist[i + 5] = 400;
+    }
+    
+    //降順、バブルソート
+    for(uint8_t i = 0; i < 10; i++) 
+    {
+        for(uint8_t j = 0; j < 10 - i - 1; j++) 
+        {
+            if(dist[j] > dist[j + 1]) 
+            {
+                uint8_t tmp = dist[j];
+                dist[j] = dist[j + 1];
+                dist[j + 1] = tmp;
+            }
+        }
+    }
+    
+    if(dist[9] < 15); //反転させる
     
     return;
 }
