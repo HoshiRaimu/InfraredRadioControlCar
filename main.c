@@ -49,6 +49,12 @@
 #define TRIG RB0
 #define ECHO RB1
 
+typedef struct
+{
+    uint16_t data;
+    uint8_t  index;
+} Pair;
+
 void init(void);
 
 void goForward(uint8_t);
@@ -58,6 +64,7 @@ void goLeft(uint8_t);
 
 uint16_t measureDist(void);
 void avoidObs(void);
+void bubbleSort(Pair *);
 
 void putch(uint8_t data) 
 {
@@ -80,13 +87,15 @@ void __interrupt() isr(void)
         
         TMR2IF = 0;             //割り込みフラグをクリア
         
-    } else if(TMR4IF == 1)      //Timer4の割り込み
+    }
+    else if(TMR4IF == 1)      //Timer4の割り込み
     {    
         LATC0 = 0;              //RC0をLOW
         T4CONbits.ON = 0;       //Timer4を停止
         TMR4IF = 0;             //割り込みフラグをクリア
         
-    } else if(TMR6IF == 1)      //Timer6の割り込み
+    } 
+    else if(TMR6IF == 1)      //Timer6の割り込み
     {    
         LATC1 = 0;              //RC1をLOW
         T6CONbits.ON = 0;       //Timer6を停止
@@ -119,15 +128,16 @@ void main(void)
         {
             LATA2 = 1;          //LEDを点灯
             
-            while(RA2) 
+            while(RA1) 
             {
                 dist = measureDist();
 
                 if(dist < 400) 
                 {
                     if(dist > 15) goForward(0);
+                    else avoidObs();
                 }
-                printf("%d\n", dist);
+                //printf("%d\n", dist);
                 TMR3 = 0;
                  __delay_ms(100);
             }
@@ -357,36 +367,57 @@ uint16_t measureDist()
 
 void avoidObs()
 {
-    uint16_t dist[10];
+    Pair dist[10];
     for(uint8_t i = 0; i < 5; i++)
     {
-        goLeft(0);
-        dist[i] = measureDist();
-        if(dist[i] > 400) dist[i] = 400;
+        goLeft(20);
+        dist[i].data = measureDist();
+        dist[i].index = i;
+        if(dist[i].data > 400) dist[i].data = 400;
     }
-    goRight(0);             //元に戻す
+    for(uint8_t i = 0; i < 5; i++) goRight(20);             //元に戻す
     for(uint8_t i = 0; i < 5; i++)
     {
-        goRight(0);
-        dist[i + 5] = measureDist();
-        if(dist[i + 5] > 400) dist[i + 5] = 400;
+        goRight(20);
+        dist[i + 5].data = measureDist();
+        dist[i + 5].index = i + 5;
+        if(dist[i + 5].data > 400) dist[i + 5].data = 400;
+    }
+    for(uint8_t i = 0; i < 5; i++) goLeft(20);             //元に戻す
+    
+    
+    if(dist[9].data < 15) 
+    {
+        for(uint8_t i = 0; i < 10; i++) goRight(20);
+    } 
+    else 
+    {
+        if(dist[9].index < 5) 
+        {
+            for(uint8_t i = 0; i < dist[9].index; i++) goLeft(20);
+        }
+        else 
+        {
+            for(uint8_t i = 0; i < dist[9].index - 5; i++) goRight(20);
+        }
     }
     
-    //降順、バブルソート
+    return;
+}
+
+void bubbleSort(Pair *p)
+{
     for(uint8_t i = 0; i < 10; i++) 
     {
         for(uint8_t j = 0; j < 10 - i - 1; j++) 
         {
-            if(dist[j] > dist[j + 1]) 
+            if(p[j].data > p[j + 1].data) 
             {
-                uint8_t tmp = dist[j];
-                dist[j] = dist[j + 1];
-                dist[j + 1] = tmp;
+                Pair tmp = p[j];
+                p[j] = p[j + 1];
+                p[j + 1] = tmp;
             }
         }
     }
-    
-    if(dist[9] < 15); //反転させる
-    
     return;
 }
