@@ -49,12 +49,6 @@
 #define TRIG RB0
 #define ECHO RB1
 
-typedef struct
-{
-    uint16_t data;
-    uint8_t  index;
-} Pair;
-
 void init(void);
 
 
@@ -65,7 +59,7 @@ void goLeft(uint8_t);
 
 uint16_t measureDist(void);
 void avoidObs(void);
-void bubbleSort(Pair *);
+uint8_t maxDist(uint16_t *);
 
 void putch(uint8_t data) 
 {
@@ -137,7 +131,7 @@ void main(void)
 
                 if(dist < 400) 
                 {
-                    if(dist > 15) goForward(0);
+                    if(dist > 15) goForward(3);
                     else avoidObs();
                 }
                 //printf("%d\n", dist);
@@ -146,7 +140,8 @@ void main(void)
             }
 
             LATA2 = 0;              //LEDを消灯   
-        } else 
+        } 
+        else 
         {
             //赤外線ラジコンモード
             
@@ -219,10 +214,10 @@ void main(void)
             
             if(rcv_data[0] == 'S' && rcv_data[1] == 'C') 
             {
-                if(rcv_data[3] == 0x00)      goForward(rcv_data[2] * 19 / 31);          //0~31の値を0~19の値に変換してあげる
-                else if(rcv_data[3] == 0x01) goLeft(rcv_data[2] * 19 / 31);
-                else if(rcv_data[3] == 0x02) goBack(rcv_data[2] * 19 / 31);
-                else if(rcv_data[3] == 0x03) goRight(rcv_data[2] * 19 / 31);
+                if(rcv_data[3] == 0x00)      goForward(rcv_data[2] * 19 / 31 + 3);          //0~31の値を3~22の値に変換してあげる
+                else if(rcv_data[3] == 0x01) goLeft(rcv_data[2] * 19 / 31 + 3);
+                else if(rcv_data[3] == 0x02) goBack(rcv_data[2] * 19 / 31 + 3);
+                else if(rcv_data[3] == 0x03) goRight(rcv_data[2] * 19 / 31 + 3);
             }
             
             GIE = 1;
@@ -302,10 +297,10 @@ void init()
     SP1BRG = 832;
 }
 
-void goForward(uint8_t speed) 
+void goBack(uint8_t speed) 
 {
-    PR4 = 70 - speed;
-    PR6 = 77 + speed;
+    PR4 = 72 - speed;
+    PR6 = 76 + speed;
     
     TMR2ON = 1;
     __delay_ms(50);
@@ -314,10 +309,10 @@ void goForward(uint8_t speed)
     return;
 }
 
-void goBack(uint8_t speed) 
+void goForward(uint8_t speed) 
 {
     PR4 = 77 + speed;
-    PR6 = 70 - speed;
+    PR6 = 72 - speed;
     
     TMR2ON = 1;
     __delay_ms(50);
@@ -328,8 +323,8 @@ void goBack(uint8_t speed)
 
 void goRight(uint8_t speed) 
 {
-    PR4 = 80 + speed;
-    PR6 = 81 + speed;               //どちらも80にするとモーターが止まらない
+    PR4 = 77 + speed;
+    PR6 = 78 + speed;               //どちらも80にするとモーターが止まらない
                                     //おそらく値を同じにすると同時に割り込みが発生するため
     
     TMR2ON = 1;
@@ -341,8 +336,8 @@ void goRight(uint8_t speed)
 
 void goLeft(uint8_t speed) 
 {
-    PR4 = 70 - speed;
-    PR6 = 71 - speed;
+    PR4 = 71 - speed;
+    PR6 = 72 - speed;
     
     TMR2ON = 1;
     __delay_ms(50);
@@ -374,41 +369,59 @@ uint16_t measureDist()
 
 void avoidObs()
 {
-    Pair dist[10];
+    uint16_t dist[10];
+    
+    //左方向に対して5回距離を測定
     for(uint8_t i = 0; i < 5; i++)
     {
-        goLeft(20);
-        dist[i].data = measureDist();
-        dist[i].index = i;
-        if(dist[i].data > 400) dist[i].data = 400;
+        goLeft(10);
+        dist[i] = measureDist();
+        if(dist[i] > 400) dist[i] = 400;
     }
-    for(uint8_t i = 0; i < 5; i++) goRight(20);             //元に戻す
+    
+    //車体の向きを元の方向に戻す
+    for(uint8_t i = 0; i < 5; i++) goRight(8); 
+    __delay_ms(2000);
+    //右方向に対して5回距離を測定
     for(uint8_t i = 0; i < 5; i++)
     {
-        goRight(20);
-        dist[i + 5].data = measureDist();
-        dist[i + 5].index = i + 5;
-        if(dist[i + 5].data > 400) dist[i + 5].data = 400;
+        goRight(8);
+        dist[i + 5] = measureDist();
+        if(dist[i + 5] > 400) dist[i + 5] = 400;
     }
-    for(uint8_t i = 0; i < 5; i++) goLeft(20);             //元に戻す
+    __delay_ms(2000);
+    //車体の向きを元の方向に戻す
+    for(uint8_t i = 0; i < 5; i++) goLeft(10);
     
+    //測定した中の一番長い距離を探す
+    uint16_t maxDist = dist[0];
+    uint8_t maxIndex = 0;
     
-    if(dist[9].data < 15) 
+    for(uint8_t i = 0; i < 10; i++)
     {
-        for(uint8_t i = 0; i < 10; i++) goRight(20);
+        if(maxDist < dist[i]) 
+        {
+            maxDist  = dist[i];
+            maxIndex = i;
+        }
+    }
+    
+    if(maxDist < 15) 
+    {   
+        //反対に車体を向ける
+        for(uint8_t i = 0; i < 20; i++) goRight(10);
     } 
     else 
     {
-        if(dist[9].index < 5) 
+        if(maxIndex < 5) 
         {
-            for(uint8_t i = 0; i < dist[9].index; i++) goLeft(20);
+            for(uint8_t i = 0; i <= maxIndex; i++) goLeft(10);
         }
         else 
         {
-            for(uint8_t i = 0; i < dist[9].index - 5; i++) goRight(20);
+            for(uint8_t i = 0; i <= maxIndex - 5; i++) goRight(8);
         }
     }
     
     return;
 }
-
