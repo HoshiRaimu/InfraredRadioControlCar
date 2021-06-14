@@ -57,32 +57,7 @@ typedef struct
 
 void init(void);
 
-<<<<<<< HEAD
-void goForward(void);
-void goBack(void);
-void goRight(void);
-void goLeft(void);
 
-//フォトリフレクタからの入力用変数
-uint16_t in_pr1 = 0, in_pr2 = 0;
-
-uint16_t p, i, d;
-
-uint16_t diff_r[2] = {0, 0};
-uint16_t diff_l[2] = {0, 0};
-float integral_r = 0, integral_l = 0;
-uint32_t pid_r = 0, pid_l = 0;
-float val_p, val_i, val_d;
-
-uint32_t millis = 0;
-float dt = 0;
-uint32_t now = 0, prev = 0;
-
-void __interrupt() isr(void) {      //タイマー4の割り込み
-    GIE = 0;
-    if(TMR4IF == 1) {
-        millis++;
-=======
 void goForward(uint8_t);
 void goBack(uint8_t);
 void goRight(uint8_t);
@@ -126,7 +101,7 @@ void __interrupt() isr(void)
         LATC1 = 0;              //RC1をLOW
         T6CONbits.ON = 0;       //Timer6を停止
         TMR6IF = 0;             //割り込みフラグをクリア
->>>>>>> mhz32
+
     }
     GIE = 1;
 }
@@ -155,109 +130,7 @@ void main(void)
         {
             LATA2 = 1;          //LEDを点灯
             
-<<<<<<< HEAD
-            TMR4ON = 1;             //タイマー4を開始
-                
-            while(RA1) {    
-                //ボタンが押されたらPIDを設定
-                if(RA3 == 1) {
-                    TMR2ON = 0;
-                    
-                    
-                    GIE = 0;                //割り込みを禁止
-                    
-                    __delay_ms(100);        //チャタリング対策
-                    while(RA3);
-                    lcdClearDisplay();
-                    
-                    p = changePID(0, 1, 0b00001100, 'P', p);       //B4のアナログ値を読み取り
-                    i = changePID(2, 3, 0b00001101, 'I', i);       //B5のアナログ値を読み取り
-                    d = changePID(4, 5, 0b00010011, 'D', d);       //C3のアナログ値を読み取り
-                        
-                    //LCDをまっさらにして終了
-                    lcdClearDisplay();
-                    
-                    GIE = 1;                //割り込みを許可
-                    
-                    TMR2ON = 1;
-                    
-                }
-                
-                lcdLocateCursor(1, 1);////
-                printf("%5d", pid_r);////
-                lcdLocateCursor(1, 2);////
-                printf("%5d", in_pr2);//// 
 
-                
-                
- 
-                ADPCHbits.ADPCH = 0b001010;         //B2のアナログ値を読み取り
-                ADGO = 1;
-                while(ADGO);
-                in_pr1 = ADRES;
-
-                ADPCHbits.ADPCH = 0b001011;         //B3のアナログ値を読み取り
-                ADGO = 1;
-                while(ADGO);
-                in_pr2 = ADRES;
-                
-                prev = now;
-                now = millis;
-                dt = (now - prev) * 0.001;
-               
-                
-                diff_r[0]  = diff_r[1];
-                diff_r[1]  = in_pr1 - TARGET;
-                integral_r = ((diff_r[0] + diff_r[1]) >> 2) * dt;      //本当は"/ 2"だが高速化のため">> 2"
-
-                val_p = p  * diff_r[1];
-                val_i = i  * integral_r;
-                val_d = d  * (diff_r[1] - diff_r[0]) / dt;               //本当は"/ 0.1"だが高速化のため"* 10"
-
-                pid_r = (uint16_t)((val_p + val_i + val_d) * 0.001);
-
-                diff_l[0]  = diff_l[1];
-                diff_l[1]  = in_pr2 - TARGET;
-                integral_l = ((diff_l[0] + diff_l[1]) >> 2) * dt;      //本当は"/ 2"だが高速化のため">> 2"
-
-                val_p = p * 0.0001 * diff_l[1];
-                val_i = i * 0.0001 * integral_l;
-                val_d = d * 0.00001 * (diff_l[1] - diff_l[0]) / dt;               //本当は"/ 0.1"だが高速化のため"* 10"
-
-                pid_l = (uint16_t)(val_p + val_i + val_d);
-                
-                uint8_t tmp1 = pid_r * 0.00001;
-                if(tmp1 > 60) tmp1 = 60;
-                else if(tmp1 < 0) tmp1 = 0;
-                
-                uint8_t tmp2 = pid_l * 0.01;
-                if(tmp2 > 60) tmp2 = 60;
-                else if(tmp2 < 0) tmp2 = 10;
-                
-                TMR2ON = 0;
-                CCPR1H = (uint8_t)((90 + tmp1) >> 2);
-                CCPR1L = (uint8_t)((90 + tmp1) << 6);
-                CCPR2H = (uint8_t)((100 - tmp2) >> 2);
-                CCPR2L = (uint8_t)((100 - tmp2) << 6);
-                __delay_ms(50);
-                TMR2ON = 1;
-            
-                //lcdLocateCursor(1, 1);
-                //printf("%4d", in_PR1);
-                //lcdLocateCursor(1, 2);
-                //printf("%4d", in_PR2);
-                
-            }
-            
-            TMR2ON = 0;
-            
-            
-            TMR4ON = 0;            //タイマー4を停止
-            LATA2 = 0;              //LEDを消灯
-            //LCDをまっさらにして終了
-            lcdClearDisplay();         
-        } else {
-=======
             while(RA1) 
             {
                 dist = measureDist();
@@ -275,7 +148,6 @@ void main(void)
             LATA2 = 0;              //LEDを消灯   
         } else 
         {
->>>>>>> mhz32
             //赤外線ラジコンモード
             
             GIE = 0;
@@ -398,18 +270,10 @@ void init()
     
     //Timer4の設定
     T4CLKCONbits.CS = 0b0001;       //Fosc / 4を使用
-<<<<<<< HEAD
-    T4CONbits.CKPS  = 0b000;        //プリスケーラ1:1を使用
-=======
     T4CONbits.CKPS  = 0b100;        //プリスケーラ1:16を使用
->>>>>>> mhz32
     T4CONbits.OUTPS = 0b1001;       //ポストスケーラ1:10を使用
     PR4             = 0;            //この値を変化させ、サーボモーターを制御
     T4CONbits.ON    = 0;            //タイマー4を停止
-<<<<<<< HEAD
-    PR4             = 25;           //39までカウント(1ms)されたら割り込みするように設定
-=======
->>>>>>> mhz32
     TMR4IF          = 0;            //タイマー4の割り込みフラグを0に設定
     TMR4IE          = 1;            //タイマー4の割り込みを許可
     
@@ -548,19 +412,3 @@ void avoidObs()
     return;
 }
 
-void bubbleSort(Pair *p)
-{
-    for(uint8_t i = 0; i < 10; i++) 
-    {
-        for(uint8_t j = 0; j < 10 - i - 1; j++) 
-        {
-            if(p[j].data > p[j + 1].data) 
-            {
-                Pair tmp = p[j];
-                p[j] = p[j + 1];
-                p[j + 1] = tmp;
-            }
-        }
-    }
-    return;
-}
