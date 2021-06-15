@@ -59,7 +59,6 @@ void goLeft(uint8_t);
 
 uint16_t measureDist(void);
 void avoidObs(void);
-uint8_t maxDist(uint16_t *);
 
 void putch(uint8_t data) 
 {
@@ -105,7 +104,7 @@ void main(void)
 {
     
     init();
-    
+
     uint8_t rcv_data[4];
      
     //リーダーコードの長さに応じて赤外線を受信するかしないか判断
@@ -114,29 +113,24 @@ void main(void)
     uint32_t echo_time, dist;
     TMR3 = 0;
     
-    
-    ADPCHbits.ADPCH = 0b00001100; 
-    uint16_t val;
-    
     while(1) 
     {
         if(RA1) 
         {
             LATA2 = 1;          //LEDを点灯
             
-
             while(RA1) 
             {
                 dist = measureDist();
-
+                
                 if(dist < 400) 
                 {
-                    if(dist > 15) goForward(3);
+                    if(dist > 15) goForward(8);
                     else avoidObs();
                 }
-                //printf("%d\n", dist);
-                TMR3 = 0;
-                 __delay_ms(100);
+                
+                //TMR3 = 0;
+                 //__delay_ms(100);
             }
 
             LATA2 = 0;              //LEDを消灯   
@@ -145,7 +139,7 @@ void main(void)
         {
             //赤外線ラジコンモード
             
-            GIE = 0;
+            GIE = 1;
             //初期化
             receive = false;
             for(uint8_t i = 0; i < 4; i++) rcv_data[i] = 0;
@@ -281,10 +275,12 @@ void init()
     TMR6IF          = 0;            //タイマー6の割り込みフラグを0に設定
     TMR6IE          = 1;            //タイマー6の割り込みを許可
     
+    /*
     ADCON0bits.ADON   = 1;          //ADCを許可
     ADCON0bits.ADFRM0 = 1;          //結果数値を右詰めに設定
     ADCLKbits.ADCCS   = 0b111111;   //Fosc / 128を使用
     ADREFbits.ADPREF  = 0b00;       //基準電圧は電源電圧
+    */
     
     //EUSARTの設定
     RXPPS  = 0x17;              //RC7をRXに設定
@@ -361,6 +357,7 @@ uint16_t measureDist()
 
     //距離を計算
     uint32_t echo_time = TMR3;
+    TMR3 = 0;
     echo_time = echo_time * 5 / 10;
     uint16_t dist = echo_time * 34 / 1000;    
     
@@ -369,57 +366,46 @@ uint16_t measureDist()
 
 void avoidObs()
 {
-    uint16_t dist[10];
+    uint16_t distR, distL;
     
-    //左方向に対して5回距離を測定
-    for(uint8_t i = 0; i < 5; i++)
-    {
-        goLeft(10);
-        dist[i] = measureDist();
-        if(dist[i] > 400) dist[i] = 400;
-    }
+    //左方向を測定
+    for(uint8_t i = 0; i < 5; i++) goLeft(9);
+    distL = measureDist();
+    if(distL > 400) distL = 400;
+    //TMR3 = 0;
+    __delay_ms(100);
+        
     
     //車体の向きを元の方向に戻す
     for(uint8_t i = 0; i < 5; i++) goRight(8); 
-    __delay_ms(2000);
-    //右方向に対して5回距離を測定
-    for(uint8_t i = 0; i < 5; i++)
-    {
-        goRight(8);
-        dist[i + 5] = measureDist();
-        if(dist[i + 5] > 400) dist[i + 5] = 400;
-    }
-    __delay_ms(2000);
+    __delay_ms(1000);
+    
+    //右方向を測定
+    for(uint8_t i = 0; i < 5; i++) goRight(8);
+    distR = measureDist();
+    if(distR > 400) distR = 400;
+    //TMR3 = 0;
+    __delay_ms(100);
+    
+
     //車体の向きを元の方向に戻す
-    for(uint8_t i = 0; i < 5; i++) goLeft(10);
+    for(uint8_t i = 0; i < 5; i++) goLeft(9);
+    __delay_ms(1000);
     
-    //測定した中の一番長い距離を探す
-    uint16_t maxDist = dist[0];
-    uint8_t maxIndex = 0;
-    
-    for(uint8_t i = 0; i < 10; i++)
-    {
-        if(maxDist < dist[i]) 
-        {
-            maxDist  = dist[i];
-            maxIndex = i;
-        }
-    }
-    
-    if(maxDist < 15) 
+    if(distR < 25 && distL < 25) 
     {   
         //反対に車体を向ける
-        for(uint8_t i = 0; i < 20; i++) goRight(10);
+        for( uint8_t i = 0; i < 20; i++) goRight(8);
     } 
     else 
     {
-        if(maxIndex < 5) 
+        if(distR < distL) 
         {
-            for(uint8_t i = 0; i <= maxIndex; i++) goLeft(10);
+            for(uint8_t i = 0; i < 5; i++) goLeft(9);
         }
         else 
         {
-            for(uint8_t i = 0; i <= maxIndex - 5; i++) goRight(8);
+            for(uint8_t i = 0; i < 5; i++) goRight(8);
         }
     }
     
